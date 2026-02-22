@@ -445,6 +445,7 @@ export class NativeAppService extends BaseAppService {
         execDir,
       });
     }
+    await this.prepareBooksDir();
     const settings = await this.loadSettings();
     if (settings.customRootDir) {
       this.fs.resolvePath = getPathResolver({
@@ -452,6 +453,7 @@ export class NativeAppService extends BaseAppService {
         isPortable: this.isPortableApp,
         execDir,
       });
+      await this.prepareBooksDir();
     }
     if (this.isIOSApp) {
       this.isOnlineCatalogsAccessible = this.distChannel !== 'appstore';
@@ -460,7 +462,6 @@ export class NativeAppService extends BaseAppService {
         this.storefrontRegionCode = res.regionCode;
       }
     }
-    await this.prepareBooksDir();
     await this.runMigrations();
   }
 

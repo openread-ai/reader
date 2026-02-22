@@ -286,8 +286,8 @@ export class WebAppService extends BaseAppService {
   override hasSafeAreaInset = isPWA();
 
   override async init() {
-    await this.loadSettings();
     await this.prepareBooksDir();
+    await this.loadSettings();
     await this.runMigrations();
   }
 
