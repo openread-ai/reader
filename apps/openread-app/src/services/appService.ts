@@ -733,10 +733,18 @@ export abstract class BaseAppService implements AppService {
   }
 
   async generateCoverImageUrl(book: Book): Promise<string | null> {
-    if (!(await this.fs.exists(getCoverFilename(book), 'Books'))) return null;
-    return this.appPlatform === 'web'
-      ? await this.getCoverImageBlobUrl(book)
-      : this.getCoverImageUrl(book);
+    const coverPath = getCoverFilename(book);
+    const exists = await this.fs.exists(coverPath, 'Books');
+    if (!exists) {
+      logger.debug(`[cover] no file for "${book.title}" at ${coverPath}`);
+      return null;
+    }
+    const url =
+      this.appPlatform === 'web'
+        ? await this.getCoverImageBlobUrl(book)
+        : this.getCoverImageUrl(book);
+    logger.debug(`[cover] generated url for "${book.title}": ${url?.slice(0, 60)}`);
+    return url;
   }
 
   /** P13.15: Delegates to LibraryPersistence */
