@@ -247,6 +247,12 @@ class TransferManager {
       } else if (transfer.type === 'download') {
         await this.appService.downloadBook(book, false, false, progressHandler);
         book.downloadedAt = Date.now();
+        try {
+          const coverUrl = await this.appService.generateCoverImageUrl(book);
+          if (coverUrl) book.coverImageUrl = coverUrl;
+        } catch {
+          /* cover may not exist for all books */
+        }
         await this.updateBook(book);
       } else if (transfer.type === 'delete') {
         await this.appService.deleteBook(book, 'cloud');
