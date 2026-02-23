@@ -732,7 +732,8 @@ export abstract class BaseAppService implements AppService {
     await this.fs.writeFile(getConfigFilename(book), 'Books', serializedConfig);
   }
 
-  async generateCoverImageUrl(book: Book): Promise<string> {
+  async generateCoverImageUrl(book: Book): Promise<string | null> {
+    if (!(await this.fs.exists(getCoverFilename(book), 'Books'))) return null;
     return this.appPlatform === 'web'
       ? await this.getCoverImageBlobUrl(book)
       : this.getCoverImageUrl(book);
