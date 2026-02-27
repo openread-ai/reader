@@ -2,7 +2,7 @@
  * @module services/sync/syncWorker
  * P9.22: Background sync worker that drains the offline queue.
  *
- * - Runs every 30 seconds when online
+ * - Runs every 10 seconds when online
  * - Pauses when offline, resumes on reconnection
  * - Uses SyncClient to push queued changes
  * - Dispatches status events for UI updates
@@ -10,13 +10,15 @@
 
 import { offlineQueue, type QueueItem } from './offlineQueue';
 import { SyncClient } from '@/libs/sync';
+import { supabase } from '@/utils/supabase';
 import { transformBookFromDB } from '@/utils/transform';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import envConfig from '@/services/environment';
 import type { DBBook } from '@/types/records';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
-const SYNC_INTERVAL_MS = 30_000;
+const SYNC_INTERVAL_MS = 10_000;
 
 export interface SyncWorkerStatus {
   pending: number;
@@ -32,7 +34,10 @@ export interface SyncWorkerStatus {
 export class SyncWorker {
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private isRunning = false;
+  private pendingDrainRequested = false;
   private syncClient = new SyncClient();
+  private realtimeChannel: RealtimeChannel | null = null;
+  private userId: string | null = null;
   private _status: SyncWorkerStatus = {
     pending: 0,
     syncing: false,
@@ -44,9 +49,11 @@ export class SyncWorker {
   /**
    * Start the background sync worker.
    * Drains the queue immediately, then every SYNC_INTERVAL_MS.
+   * Subscribes to Supabase Realtime for instant cross-device sync.
    */
-  start(): void {
+  start(userId?: string): void {
     if (this.intervalId) return; // Already started
+    this.userId = userId ?? null;
 
     // Listen to online/offline events
     if (typeof window !== 'undefined') {
@@ -54,10 +61,20 @@ export class SyncWorker {
       window.addEventListener('offline', this.handleOffline);
     }
 
+    // Subscribe to Supabase Realtime broadcast for instant pull
+    if (this.userId) {
+      this.realtimeChannel = supabase
+        .channel(`sync:${this.userId}`)
+        .on('broadcast', { event: 'books-changed' }, () => {
+          this.pullRemoteChanges();
+        })
+        .subscribe();
+    }
+
     // Run full cycle immediately on start (replay pending + pull remote)
     this.runSyncCycle();
 
-    // Schedule periodic sync cycles
+    // Schedule periodic sync cycles (fallback if Realtime disconnects)
     this.intervalId = setInterval(() => this.runSyncCycle(), SYNC_INTERVAL_MS);
   }
 
@@ -69,6 +86,11 @@ export class SyncWorker {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    if (this.realtimeChannel) {
+      supabase.removeChannel(this.realtimeChannel);
+      this.realtimeChannel = null;
+    }
+    this.userId = null;
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', this.handleOnline);
       window.removeEventListener('offline', this.handleOffline);
@@ -76,9 +98,15 @@ export class SyncWorker {
   }
 
   /**
-   * Manually trigger a drain (e.g., user presses "Sync now").
+   * Manually trigger a drain (e.g., after enqueuing a delete).
+   * If a drain is already running, schedules a re-drain so the new item
+   * isn't stuck waiting for the next periodic cycle.
    */
   async syncNow(): Promise<void> {
+    if (this.isRunning) {
+      this.pendingDrainRequested = true;
+      return;
+    }
     await this.drainQueue();
   }
 
@@ -138,6 +166,13 @@ export class SyncWorker {
       });
     } finally {
       this.isRunning = false;
+
+      // If syncNow() was called while we were draining, re-drain to pick up
+      // items that were enqueued during the previous drain.
+      if (this.pendingDrainRequested) {
+        this.pendingDrainRequested = false;
+        this.drainQueue();
+      }
     }
   }
 
@@ -200,6 +235,7 @@ export class SyncWorker {
       switch (item.type) {
         case 'book':
           await this.syncClient.pushChanges({ books: [item.payload] });
+          this.broadcastChange('books-changed');
           return true;
         case 'config':
           await this.syncClient.pushChanges({ configs: [item.payload] });
@@ -215,6 +251,18 @@ export class SyncWorker {
       console.error(`[SyncWorker] Failed to process item ${item.id}:`, error);
       return false;
     }
+  }
+
+  /**
+   * Broadcast a sync event to other devices via Supabase Realtime.
+   */
+  private broadcastChange(event: string): void {
+    if (!this.realtimeChannel) return;
+    this.realtimeChannel.send({
+      type: 'broadcast',
+      event,
+      payload: {},
+    });
   }
 
   private updateStatus(partial: Partial<SyncWorkerStatus>): void {
