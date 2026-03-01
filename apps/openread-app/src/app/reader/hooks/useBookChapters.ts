@@ -5,12 +5,47 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('book-chapters');
 
-function getChapterTitle(toc: TOCItem[] | undefined, sectionIndex: number): string {
-  if (!toc || toc.length === 0) return `Section ${sectionIndex + 1}`;
-  for (let i = toc.length - 1; i >= 0; i--) {
-    if (toc[i]!.id <= sectionIndex) return toc[i]!.label;
+/**
+ * Build two maps from section ID → label:
+ *
+ * 1. `titleMap`: section ID → its own TOC label (first/outermost match wins).
+ * 2. `parentMap`: section ID → parent TOC label (e.g. "Chapter 3: The 5 Time Assassins").
+ *
+ * The parent map lets us prefix sub-section titles so the AI can resolve
+ * "Chapter 3" even when the EPUB spine only has subsections like "The Three Trade Levels".
+ */
+function buildSectionTitleMaps(bookDoc: BookDoc): {
+  titleMap: Map<string, string>;
+  parentMap: Map<string, string>;
+} {
+  const titleMap = new Map<string, string>();
+  const parentMap = new Map<string, string>();
+  if (!bookDoc.toc) return { titleMap, parentMap };
+
+  function traverse(items: TOCItem[], parentLabel?: string) {
+    for (const item of items) {
+      if (item.href) {
+        try {
+          const sectionId = String(bookDoc.splitTOCHref(item.href)[0] ?? '');
+          if (sectionId && !titleMap.has(sectionId)) {
+            titleMap.set(sectionId, item.label);
+          }
+          if (sectionId && parentLabel && !parentMap.has(sectionId)) {
+            parentMap.set(sectionId, parentLabel);
+          }
+        } catch {
+          // Skip TOC items with malformed hrefs
+        }
+      }
+      if (item.subitems) {
+        // Children inherit this item's label as their parent chapter
+        traverse(item.subitems, item.label);
+      }
+    }
   }
-  return toc[0]?.label || `Section ${sectionIndex + 1}`;
+
+  traverse(bookDoc.toc);
+  return { titleMap, parentMap };
 }
 
 function extractText(doc: Document): string {
@@ -25,7 +60,7 @@ function extractText(doc: Document): string {
 
 async function extractAllChapters(bookDoc: BookDoc): Promise<ReaderChapter[]> {
   const sections = bookDoc.sections || [];
-  const toc = bookDoc.toc;
+  const { titleMap, parentMap } = buildSectionTitleMaps(bookDoc);
   const result: ReaderChapter[] = [];
 
   for (let i = 0; i < sections.length; i++) {
@@ -37,10 +72,17 @@ async function extractAllChapters(bookDoc: BookDoc): Promise<ReaderChapter[]> {
       const text = extractText(doc);
       if (text.length < 50) continue;
 
+      // Build a title that includes the parent chapter label when available.
+      // e.g. "Chapter 3: The 5 Time Assassins > The Three Trade Levels"
+      // This allows the AI to resolve "Chapter 3" via substring match.
+      const ownTitle = titleMap.get(section.id) || `Section ${i + 1}`;
+      const parent = parentMap.get(section.id);
+      const title = parent && parent !== ownTitle ? `${parent} > ${ownTitle}` : ownTitle;
+
       result.push({
         id: section.id,
         index: i,
-        title: getChapterTitle(toc, i),
+        title,
         text,
       });
     } catch {
