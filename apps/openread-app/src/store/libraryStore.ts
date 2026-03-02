@@ -99,11 +99,14 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const appService = await envConfig.getAppService();
     const { library, refreshGroups } = get();
 
-    // Preserve runtime-only coverImageUrl from existing books (not persisted, regenerated on load)
     const existingMap = new Map(library.map((b) => [b.hash, b]));
     const merged = books.map((b) => {
       const existing = existingMap.get(b.hash);
-      return existing ? { ...b, coverImageUrl: b.coverImageUrl || existing.coverImageUrl } : b;
+      if (!existing) return b;
+      // Keep whichever version is newer; preserve runtime-only coverImageUrl
+      const localNewer = (existing.updatedAt || 0) > (b.updatedAt || 0);
+      const winner = localNewer ? existing : b;
+      return { ...winner, coverImageUrl: winner.coverImageUrl || existing.coverImageUrl };
     });
     const newLibrary = Array.from(
       new Map([...library, ...merged].map((b) => [b.hash, b])).values(),
