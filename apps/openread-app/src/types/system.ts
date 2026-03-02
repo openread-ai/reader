@@ -125,7 +125,6 @@ export interface AppService {
     saveBook?: boolean,
     saveCover?: boolean,
     overwrite?: boolean,
-    transient?: boolean,
   ): Promise<Book | null>;
   deleteBook(book: Book, deleteAction: DeleteAction): Promise<void>;
   uploadBook(book: Book, onProgress?: ProgressHandler): Promise<void>;

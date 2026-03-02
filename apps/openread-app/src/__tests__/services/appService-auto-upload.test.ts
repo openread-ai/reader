@@ -252,18 +252,6 @@ describe('appService importBook auto-upload', () => {
     );
   });
 
-  it('should NOT queue upload for transient imports', async () => {
-    // transient=true requires a string file path
-    const books: Book[] = [];
-
-    await appService.importBook('/path/to/test.epub', books, true, true, false, true);
-
-    // Advance timers well past the 3-second delay
-    vi.advanceTimersByTime(5000);
-
-    expect(mockQueueUpload).not.toHaveBeenCalled();
-  });
-
   it('should NOT queue upload when book already has uploadedAt', async () => {
     const mockFile = new File(['test content'], 'test.epub');
     const existingBook = createMockBook({

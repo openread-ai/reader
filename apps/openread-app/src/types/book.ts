@@ -21,8 +21,6 @@ export interface Book extends BookCore {
   id?: string;
   // if Book is a remote book we just lazy load the book content via url
   url?: string;
-  // if Book is a transient local book we can load the book content via filePath
-  filePath?: string;
   // Metadata md5 hash, used to aggregate different versions of the same book
   metaHash?: string;
   sourceTitle?: string; // parsed when the book is imported and used to locate the file

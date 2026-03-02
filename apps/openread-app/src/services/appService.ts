@@ -375,17 +375,12 @@ export abstract class BaseAppService implements AppService {
     saveBook: boolean = true,
     saveCover: boolean = true,
     overwrite: boolean = false,
-    transient: boolean = false,
   ): Promise<Book | null> {
     try {
       let loadedBook: BookDoc;
       let format: BookFormat;
       let filename: string;
       let fileobj: File;
-
-      if (transient && typeof file !== 'string') {
-        throw new Error('Transient import is only supported for file paths');
-      }
 
       try {
         if (typeof file === 'string') {
@@ -417,9 +412,7 @@ export abstract class BaseAppService implements AppService {
       const hash = await partialMD5(fileobj);
       const existingBook = books.filter((b) => b.hash === hash)[0];
       if (existingBook) {
-        if (!transient) {
-          existingBook.deletedAt = null;
-        }
+        existingBook.deletedAt = null;
         existingBook.createdAt = Date.now();
         existingBook.updatedAt = Date.now();
       }
@@ -434,7 +427,7 @@ export abstract class BaseAppService implements AppService {
         author: formatAuthors(loadedBook.metadata.author, primaryLanguage),
         createdAt: existingBook ? existingBook.createdAt : Date.now(),
         uploadedAt: existingBook ? existingBook.uploadedAt : null,
-        deletedAt: transient ? Date.now() : null,
+        deletedAt: null,
         downloadedAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -452,7 +445,7 @@ export abstract class BaseAppService implements AppService {
         await this.fs.createDir(getDir(book), 'Books');
       }
       const bookFilename = getLocalBookFilename(book);
-      if (saveBook && !transient && (!(await this.fs.exists(bookFilename, 'Books')) || overwrite)) {
+      if (saveBook && (!(await this.fs.exists(bookFilename, 'Books')) || overwrite)) {
         if (/\.txt$/i.test(filename)) {
           await this.fs.writeFile(bookFilename, 'Books', fileobj);
         } else if (typeof file === 'string' && isContentURI(file)) {
@@ -491,15 +484,11 @@ export abstract class BaseAppService implements AppService {
         books.splice(0, 0, book);
       }
 
-      // update file links with url or path or content uri
+      // update file links with url or content uri
       if (typeof file === 'string') {
         if (isValidURL(file)) {
           book.url = file;
           if (existingBook) existingBook.url = file;
-        }
-        if (transient) {
-          book.filePath = file;
-          if (existingBook) existingBook.filePath = file;
         }
       }
       book.coverImageUrl = await this.generateCoverImageUrl(book);
@@ -508,36 +497,32 @@ export abstract class BaseAppService implements AppService {
         await f.close();
       }
 
-      // Auto-upload to cloud if enabled and not a transient import
-      if (!transient) {
-        const resultBook = existingBook || book;
-        if (!resultBook.uploadedAt) {
-          setTimeout(() => {
-            try {
-              const settings = useSettingsStore.getState().settings;
-              const isReady = transferManager.isReady();
-              logger.info('Auto-upload check:', {
-                autoUpload: settings.autoUpload,
-                transferManagerReady: isReady,
-                bookHash: resultBook.hash,
+      // Auto-upload to cloud if enabled
+      const resultBook = existingBook || book;
+      if (!resultBook.uploadedAt) {
+        setTimeout(() => {
+          try {
+            const settings = useSettingsStore.getState().settings;
+            const isReady = transferManager.isReady();
+            logger.info('Auto-upload check:', {
+              autoUpload: settings.autoUpload,
+              transferManagerReady: isReady,
+              bookHash: resultBook.hash,
+            });
+            if (settings.autoUpload && isReady) {
+              logger.info('Queueing auto-upload for:', resultBook.title);
+              transferManager.queueUpload(resultBook);
+            } else {
+              logger.warn('Auto-upload skipped:', {
+                reason: !settings.autoUpload ? 'autoUpload disabled' : 'transferManager not ready',
               });
-              if (settings.autoUpload && isReady) {
-                logger.info('Queueing auto-upload for:', resultBook.title);
-                transferManager.queueUpload(resultBook);
-              } else {
-                logger.warn('Auto-upload skipped:', {
-                  reason: !settings.autoUpload
-                    ? 'autoUpload disabled'
-                    : 'transferManager not ready',
-                });
-              }
-            } catch (e) {
-              logger.warn('Auto-upload failed:', e);
             }
-          }, 3000);
-        } else {
-          logger.info('Skipping auto-upload, book already uploaded:', resultBook.hash);
-        }
+          } catch (e) {
+            logger.warn('Auto-upload failed:', e);
+          }
+        }, 3000);
+      } else {
+        logger.info('Skipping auto-upload, book already uploaded:', resultBook.hash);
       }
 
       return existingBook || book;
@@ -629,9 +614,6 @@ export abstract class BaseAppService implements AppService {
     if (await this.fs.exists(fp, 'Books')) {
       return true;
     }
-    if (book.filePath) {
-      return await this.fs.exists(book.filePath, 'None');
-    }
     if (book.url) {
       return isValidURL(book.url);
     }
@@ -657,8 +639,6 @@ export abstract class BaseAppService implements AppService {
     const fp = getLocalBookFilename(book);
     if (await this.fs.exists(fp, 'Books')) {
       file = await this.fs.openFile(fp, 'Books');
-    } else if (book.filePath) {
-      file = await this.fs.openFile(book.filePath, 'None');
     } else if (book.url) {
       file = await this.fs.openFile(book.url, 'None');
     } else {
