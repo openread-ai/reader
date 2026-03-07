@@ -116,6 +116,7 @@ export class SyncWorker {
     error: null,
   };
   private listeners = new Set<(status: SyncWorkerStatus) => void>();
+  private downloadAttempted = new Set<string>();
 
   /**
    * Start the background sync worker.
@@ -431,10 +432,11 @@ export class SyncWorker {
       const { transferManager } = await import('@/services/transferManager');
 
       for (const book of books) {
-        if (!book.uploadedAt) continue;
+        if (!book.uploadedAt || this.downloadAttempted.has(book.hash)) continue;
         const bookExists = await appService.exists(getLocalBookFilename(book), 'Books');
         const coverExists = await appService.exists(getCoverFilename(book), 'Books');
         if (!bookExists || !coverExists) {
+          this.downloadAttempted.add(book.hash);
           transferManager.queueDownload(book);
         }
       }

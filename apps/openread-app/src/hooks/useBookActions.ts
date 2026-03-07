@@ -20,6 +20,57 @@ function bookPayload(book: Book): Record<string, unknown> {
 }
 
 /**
+ * Background cleanup for a permanently deleted book.
+ * Runs after the book is already removed from the UI — all steps are best-effort.
+ */
+async function cleanupDeletedBook(book: Book, remainingLibrary: Book[]): Promise<void> {
+  try {
+    const appService = await envConfig.getAppService();
+
+    // Save updated library, remove from collections, delete files — all in parallel
+    const [, , sidebarStore] = await Promise.all([
+      appService.saveLibraryBooks(remainingLibrary),
+      appService.deleteBook(book, 'both').catch(() => {}),
+      import('@/store/platformSidebarStore'),
+    ]);
+
+    // Remove from all collections
+    const { collections, removeBookFromCollection } =
+      sidebarStore.usePlatformSidebarStore.getState();
+    for (const col of collections) {
+      if (col.bookHashes.includes(book.hash)) {
+        removeBookFromCollection(col.id, book.hash);
+      }
+    }
+
+    // Delete local config directory
+    appService.deleteDir(`${book.hash}`, 'Books').catch(() => {});
+
+    // Delete AI conversations from IndexedDB
+    import('@/services/ai/storage/aiStore')
+      .then(async ({ aiStore }) => {
+        const conversations = await aiStore.getConversations(book.hash);
+        for (const conv of conversations) {
+          await aiStore.deleteConversation(conv.id);
+        }
+      })
+      .catch(() => {});
+
+    // Hard-delete server-side data
+    getAccessToken().then((token) => {
+      if (token) {
+        fetch(`/api/sync?book_hash=${encodeURIComponent(book.hash)}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
+    });
+  } catch (error) {
+    createLogger('bookActions').error('Background cleanup failed:', error);
+  }
+}
+
+/**
  * Hook that provides book mutation actions for single and bulk operations.
  * All mutations go through libraryStore.updateBook() for consistency.
  */
@@ -162,85 +213,51 @@ export function useBookActions() {
   );
 
   /**
-   * Permanently delete a book: hard-delete from library, server configs/notes, and storage.
+   * Permanently delete a book: instant UI removal, background cleanup.
    * This is irreversible — re-importing the same file starts fresh.
    */
   const permanentlyDeleteBook = useCallback(async (book: Book) => {
-    try {
-      const appService = await envConfig.getAppService();
+    // Instant: remove from UI + collections + in-memory store
+    const { library, setLibrary } = useLibraryStore.getState();
+    const remaining = library.filter((b) => b.hash !== book.hash);
+    setLibrary(remaining);
 
-      // 1. Delete local + cloud files (book file, cover)
-      await appService.deleteBook(book, 'both');
+    const bookKey = `${book.hash}-${book.format}`;
+    useBookDataStore.getState().setConfig(bookKey, { booknotes: [], progress: undefined });
 
-      // 2. Delete local config directory ({hash}/)
-      try {
-        await appService.deleteDir(`${book.hash}`, 'Books');
-      } catch {
-        // Directory may not exist or be partially deleted — continue
-      }
-
-      // 3. Remove from library entirely (not soft-delete)
-      const { library, setLibrary } = useLibraryStore.getState();
-      const remaining = library.filter((b) => b.hash !== book.hash);
-      setLibrary(remaining);
-      appService.saveLibraryBooks(remaining);
-
-      // 4. Clear local book data from in-memory store
-      const bookKey = `${book.hash}-${book.format}`;
-      useBookDataStore.getState().setConfig(bookKey, { booknotes: [], progress: undefined });
-
-      // 5. Delete AI conversations from IndexedDB
-      try {
-        const { aiStore } = await import('@/services/ai/storage/aiStore');
-        const conversations = await aiStore.getConversations(book.hash);
-        for (const conv of conversations) {
-          await aiStore.deleteConversation(conv.id);
-        }
-      } catch {
-        // AI store may not be initialized — continue
-      }
-
-      // 6. Hard-delete server-side data (configs, notes, AI, files, books row)
-      try {
-        const token = await getAccessToken();
-        if (token) {
-          await fetch(`/api/sync?book_hash=${encodeURIComponent(book.hash)}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` },
-          });
-        }
-      } catch {
-        // Server cleanup is best-effort — reconciliation handles cross-device
-      }
-    } catch (error) {
-      logger.error('Failed to permanently delete book:', error);
-      eventDispatcher.dispatch('toast', {
-        type: 'error',
-        message: 'Failed to permanently delete book',
-      });
-    }
+    // Background: clean up all layers (best-effort, non-blocking)
+    cleanupDeletedBook(book, remaining);
   }, []);
 
   /**
    * Permanently delete multiple books.
-   * Removes all from library immediately (optimistic), then cleans up in sequence.
+   * Instant UI removal for all, then background cleanup.
    */
   const bulkRemove = useCallback(
-    async (hashes: string[]) => {
+    (hashes: string[]) => {
       const books = hashes.map((hash) => getBookByHash(hash)).filter(Boolean) as Book[];
       if (books.length === 0) return;
 
       clearSelection();
       setSelectMode(false);
 
-      // Delete sequentially to avoid library state races
+      // Instant: remove all from UI at once
+      const hashSet = new Set(hashes);
+      const { library, setLibrary } = useLibraryStore.getState();
+      const remaining = library.filter((b) => !hashSet.has(b.hash));
+      setLibrary(remaining);
+
       for (const book of books) {
-        await permanentlyDeleteBook(book).catch((error) => {
-          logger.error(`Failed to permanently delete ${book.title}:`, error);
-        });
+        const bookKey = `${book.hash}-${book.format}`;
+        useBookDataStore.getState().setConfig(bookKey, { booknotes: [], progress: undefined });
+      }
+
+      // Background: clean up all books in parallel
+      for (const book of books) {
+        cleanupDeletedBook(book, remaining);
       }
     },
-    [getBookByHash, clearSelection, setSelectMode, permanentlyDeleteBook],
+    [getBookByHash, clearSelection, setSelectMode],
   );
 
   return {
