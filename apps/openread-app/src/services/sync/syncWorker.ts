@@ -363,8 +363,8 @@ export class SyncWorker {
       if (reconcile.upsert?.length) {
         const books = reconcile.upsert.map((b) => transformBookFromDB(b as unknown as DBBook));
         await useLibraryStore.getState().updateBooks(envConfig, books);
-        // Queue downloads for books missing local files or covers
-        this.queueMissingDownloads(books);
+        // Download covers for synced books (fast, cover-only, no full book download)
+        this.downloadMissingCovers(books);
       }
       if (reconcile.remove?.length) {
         const removeSet = new Set(reconcile.remove);
@@ -380,25 +380,36 @@ export class SyncWorker {
   }
 
   /**
-   * Queue downloads for upserted books that are missing local files or covers.
+   * Download covers for upserted books that are missing them locally.
+   * Uses batch cover download (fast, ~50-100KB per cover) instead of
+   * downloading the entire book file.
    */
-  private async queueMissingDownloads(books: Book[]): Promise<void> {
+  private async downloadMissingCovers(books: Book[]): Promise<void> {
     try {
       const appService = await envConfig.getAppService();
-      const { getLocalBookFilename, getCoverFilename } = await import('@/utils/book');
-      const { transferManager } = await import('@/services/transferManager');
+      const { getCoverFilename } = await import('@/utils/book');
 
+      const needsCover = [];
       for (const book of books) {
         if (!book.uploadedAt || this.downloadAttempted.has(book.hash)) continue;
-        const bookExists = await appService.exists(getLocalBookFilename(book), 'Books');
         const coverExists = await appService.exists(getCoverFilename(book), 'Books');
-        if (!bookExists || !coverExists) {
+        if (!coverExists) {
           this.downloadAttempted.add(book.hash);
-          transferManager.queueDownload(book);
+          needsCover.push(book);
         }
       }
+
+      if (needsCover.length > 0) {
+        await appService.downloadBookCovers(needsCover);
+        // Regenerate cover URLs after download
+        for (const book of needsCover) {
+          book.coverImageUrl = await appService.generateCoverImageUrl(book);
+        }
+        // Update library with cover URLs
+        await useLibraryStore.getState().updateBooks(envConfig, needsCover);
+      }
     } catch (error) {
-      console.error('[SyncWorker] Failed to queue downloads:', error);
+      console.error('[SyncWorker] Failed to download covers:', error);
     }
   }
 

@@ -59,7 +59,6 @@ const BookCover: React.FC<BookCoverProps> = memo<BookCoverProps>(
       onImageError?.();
     };
 
-    // Prefer local cover (full resolution) over metadata thumbnail (low-res data URL)
     const coverSrc = book.coverImageUrl || book.metadata?.coverImageUrl || null;
 
     useEffect(() => {
