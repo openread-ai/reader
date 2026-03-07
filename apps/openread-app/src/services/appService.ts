@@ -504,32 +504,18 @@ export abstract class BaseAppService implements AppService {
         await f.close();
       }
 
-      // Auto-upload to cloud if enabled
+      // Auto-upload to cloud immediately (no delay)
       const resultBook = existingBook || book;
       if (!resultBook.uploadedAt) {
-        setTimeout(() => {
-          try {
-            const settings = useSettingsStore.getState().settings;
-            const isReady = transferManager.isReady();
-            logger.info('Auto-upload check:', {
-              autoUpload: settings.autoUpload,
-              transferManagerReady: isReady,
-              bookHash: resultBook.hash,
-            });
-            if (settings.autoUpload && isReady) {
-              logger.info('Queueing auto-upload for:', resultBook.title);
-              transferManager.queueUpload(resultBook);
-            } else {
-              logger.warn('Auto-upload skipped:', {
-                reason: !settings.autoUpload ? 'autoUpload disabled' : 'transferManager not ready',
-              });
-            }
-          } catch (e) {
-            logger.warn('Auto-upload failed:', e);
+        try {
+          const settings = useSettingsStore.getState().settings;
+          if (settings.autoUpload && transferManager.isReady()) {
+            logger.info('Queueing auto-upload for:', resultBook.title);
+            transferManager.queueUpload(resultBook, 1); // high priority
           }
-        }, 3000);
-      } else {
-        logger.info('Skipping auto-upload, book already uploaded:', resultBook.hash);
+        } catch (e) {
+          logger.warn('Auto-upload failed:', e);
+        }
       }
 
       return existingBook || book;
