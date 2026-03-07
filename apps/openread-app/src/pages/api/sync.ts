@@ -460,12 +460,52 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Hash-based book reconciliation: compare client inventory against server
+    let reconcileResult: { upsert: typeof resultBooks; remove: string[] } | undefined;
+    if (
+      body.reconcile?.books &&
+      typeof body.reconcile.books === 'object' &&
+      !Array.isArray(body.reconcile.books)
+    ) {
+      const clientHashes = body.reconcile.books as Record<string, number>;
+
+      const { data: serverBooks, error: serverErr } = await supabase
+        .from('books')
+        .select('*')
+        .eq('user_id', user.id)
+        .is('deleted_at', null);
+
+      if (!serverErr && serverBooks) {
+        const serverMap = new Map(serverBooks.map((b) => [b.book_hash, b]));
+        const reconcileUpsert: typeof serverBooks = [];
+        const reconcileRemove: string[] = [];
+
+        // Server has but client doesn't, or server is newer
+        for (const [hash, book] of serverMap) {
+          const clientTime = clientHashes[hash];
+          if (clientTime === undefined || new Date(book.updated_at).getTime() > clientTime) {
+            reconcileUpsert.push(book);
+          }
+        }
+
+        // Client has but server doesn't
+        for (const hash of Object.keys(clientHashes)) {
+          if (!serverMap.has(hash)) {
+            reconcileRemove.push(hash);
+          }
+        }
+
+        reconcileResult = { upsert: reconcileUpsert, remove: reconcileRemove };
+      }
+    }
+
     return NextResponse.json(
       {
         books: resultBooks,
         configs: resultConfigs,
         notes: resultNotes,
         ...(resultSettings ? { settings: resultSettings } : {}),
+        ...(reconcileResult ? { reconcile: reconcileResult } : {}),
       },
       { status: 200 },
     );
@@ -483,8 +523,8 @@ export async function POST(req: NextRequest) {
 
 /**
  * DELETE /api/sync?book_hash=X
- * Hard-delete all server-side data for a book: configs, notes, AI conversations, files metadata.
- * The books table row is kept as a tombstone (deletedAt set) for cross-device sync propagation.
+ * Hard-delete ALL server-side data including the books row: configs, notes, AI conversations, files metadata.
+ * No tombstone needed — hash-based reconciliation handles cross-device propagation.
  */
 export async function DELETE(req: NextRequest) {
   const { user, token } = await validateUserAndToken(req.headers.get('authorization'));
@@ -501,8 +541,8 @@ export async function DELETE(req: NextRequest) {
   const supabase = createSupabaseClient(token);
   const errors: string[] = [];
 
-  // Run independent deletions in parallel
-  const [configResult, notesResult, filesResult, aiResult] = await Promise.all([
+  // Run independent deletions in parallel — hard-delete everything including the books row
+  const [configResult, notesResult, filesResult, aiResult, bookResult] = await Promise.all([
     supabase.from('book_configs').delete().eq('user_id', user.id).eq('book_hash', bookHash),
     supabase.from('book_notes').delete().eq('user_id', user.id).eq('book_hash', bookHash),
     supabase.from('files').delete().eq('user_id', user.id).eq('book_hash', bookHash),
@@ -527,12 +567,14 @@ export async function DELETE(req: NextRequest) {
         .eq('user_id', user.id)
         .eq('book_hash', bookHash);
     })(),
+    supabase.from('books').delete().eq('user_id', user.id).eq('book_hash', bookHash),
   ]);
 
   if (configResult.error) errors.push(`book_configs: ${configResult.error.message}`);
   if (notesResult.error) errors.push(`book_notes: ${notesResult.error.message}`);
   if (filesResult.error) errors.push(`files: ${filesResult.error.message}`);
   if (aiResult.error) errors.push(`ai: ${aiResult.error.message}`);
+  if (bookResult.error) errors.push(`books: ${bookResult.error.message}`);
 
   if (errors.length > 0) {
     return NextResponse.json({ error: errors.join('; '), partial: true }, { status: 207 });

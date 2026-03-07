@@ -26,7 +26,6 @@ function getProgressPercentage(progress?: [number, number]): number {
 
 /**
  * Hook for querying library books with filtering and limiting
- * Filters out deleted books and applies the specified filter
  */
 export function useLibraryBooks(options: UseLibraryBooksOptions = {}): UseLibraryBooksReturn {
   const { filter = 'all', limit } = options;
@@ -35,14 +34,12 @@ export function useLibraryBooks(options: UseLibraryBooksOptions = {}): UseLibrar
   const library = useLibraryStore((state) => state.library);
 
   const books = useMemo(() => {
-    const visibleBooks = library.filter((book) => !book.deletedAt);
-
     let filteredBooks: Book[];
 
     switch (filter) {
       case 'reading': {
         // Books with progress > 0% and < 100%
-        filteredBooks = visibleBooks.filter((book) => {
+        filteredBooks = library.filter((book) => {
           const progress = getProgressPercentage(book.progress);
           return (progress > 0 && progress < 100) || book.readingStatus === 'reading';
         });
@@ -53,13 +50,13 @@ export function useLibraryBooks(options: UseLibraryBooksOptions = {}): UseLibrar
 
       case 'recent': {
         // Sort by createdAt descending (newest first)
-        filteredBooks = [...visibleBooks].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        filteredBooks = [...library].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
         break;
       }
 
       case 'want-to-read': {
         // Books with readingStatus === 'unread' or no progress
-        filteredBooks = visibleBooks.filter((book) => {
+        filteredBooks = library.filter((book) => {
           const progress = getProgressPercentage(book.progress);
           return book.readingStatus === 'unread' || (progress === 0 && !book.readingStatus);
         });
@@ -70,7 +67,7 @@ export function useLibraryBooks(options: UseLibraryBooksOptions = {}): UseLibrar
 
       case 'finished': {
         // Books with progress === 100% or readingStatus === 'finished'
-        filteredBooks = visibleBooks.filter((book) => {
+        filteredBooks = library.filter((book) => {
           const progress = getProgressPercentage(book.progress);
           return progress >= 100 || book.readingStatus === 'finished';
         });
@@ -81,7 +78,7 @@ export function useLibraryBooks(options: UseLibraryBooksOptions = {}): UseLibrar
 
       case 'books': {
         // EPUB and Kindle format books
-        filteredBooks = visibleBooks.filter(
+        filteredBooks = library.filter(
           (book) =>
             book.format === 'epub' ||
             book.format === 'mobi' ||
@@ -94,13 +91,13 @@ export function useLibraryBooks(options: UseLibraryBooksOptions = {}): UseLibrar
 
       case 'pdfs': {
         // PDF format books
-        filteredBooks = visibleBooks.filter((book) => book.format === 'pdf');
+        filteredBooks = library.filter((book) => book.format === 'pdf');
         filteredBooks.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
         break;
       }
 
       default:
-        filteredBooks = [...visibleBooks].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        filteredBooks = [...library].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     }
 
     // Apply limit if specified

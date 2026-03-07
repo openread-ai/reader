@@ -7,7 +7,6 @@ import type { Book } from '@/types/book';
 const mockStoreState = {
   library: [] as Book[],
   libraryLoaded: true,
-  getVisibleLibrary: vi.fn(() => mockStoreState.library.filter((b) => !b.deletedAt)),
 };
 
 // Mock the libraryStore
@@ -55,15 +54,15 @@ describe('useLibraryBooks', () => {
       expect(result.current.books).toHaveLength(2);
     });
 
-    it('should exclude deleted books', () => {
+    it('should return all books in library', () => {
       const books = [
         createMockBook({ hash: 'book-1' }),
-        createMockBook({ hash: 'book-2', deletedAt: Date.now() }),
+        createMockBook({ hash: 'book-2' }),
+        createMockBook({ hash: 'book-3' }),
       ];
       mockStoreState.library = books;
       const { result } = renderHook(() => useLibraryBooks());
-      expect(result.current.books).toHaveLength(1);
-      expect(result.current.books[0]?.hash).toBe('book-1');
+      expect(result.current.books).toHaveLength(3);
     });
   });
 

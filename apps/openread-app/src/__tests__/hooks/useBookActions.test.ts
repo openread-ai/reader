@@ -34,8 +34,13 @@ const {
 // Mock environment config
 vi.mock('@/services/environment', () => ({
   default: {
-    getAppService: vi.fn(),
+    getAppService: vi.fn().mockResolvedValue({
+      deleteBook: vi.fn().mockResolvedValue(undefined),
+      deleteDir: vi.fn().mockResolvedValue(undefined),
+      saveLibraryBooks: vi.fn().mockResolvedValue(undefined),
+    }),
   },
+  getAPIBaseUrl: vi.fn(() => 'http://localhost:3000/api'),
 }));
 
 // Mock event dispatcher
@@ -61,6 +66,35 @@ vi.mock('@/store/platformSidebarStore', () => ({
 vi.mock('@/store/libraryViewStore', () => ({
   useLibraryViewStore: (selector: (state: typeof mockLibraryViewStoreState) => unknown) =>
     selector(mockLibraryViewStoreState),
+}));
+
+vi.mock('@/store/bookDataStore', () => {
+  const mockBookDataStore = {
+    getConfig: vi.fn(),
+    setConfig: vi.fn(),
+  };
+  const useBookDataStoreMock = (selector: (state: typeof mockBookDataStore) => unknown) =>
+    selector(mockBookDataStore);
+  useBookDataStoreMock.getState = () => mockBookDataStore;
+  return { useBookDataStore: useBookDataStoreMock };
+});
+
+vi.mock('@/utils/access', () => ({
+  getAccessToken: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock('@/services/sync/helpers', () => ({
+  enqueueAndSync: vi.fn(),
+  enqueueBatchAndSync: vi.fn(),
+}));
+
+vi.mock('@/utils/logger', () => ({
+  createLogger: () => ({
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+  }),
 }));
 
 const createMockBook = (overrides: Partial<Book> = {}): Book => ({
@@ -175,86 +209,6 @@ describe('useBookActions', () => {
     });
   });
 
-  describe('removeBook', () => {
-    it('soft deletes book by setting deletedAt', () => {
-      const mockBook = createMockBook({ hash: 'book-123' });
-      const beforeTime = Date.now();
-      const { result } = renderHook(() => useBookActions());
-
-      act(() => {
-        result.current.removeBook(mockBook);
-      });
-
-      expect(mockLibraryStoreState.updateBook).toHaveBeenCalledTimes(1);
-      const [, updatedBook] = mockLibraryStoreState.updateBook.mock.calls[0] as [unknown, Book];
-      expect(updatedBook.hash).toBe('book-123');
-      expect(updatedBook.deletedAt).toBeGreaterThanOrEqual(beforeTime);
-      expect(updatedBook.updatedAt).toBeGreaterThanOrEqual(beforeTime);
-    });
-
-    it('preserves other book properties when deleting', () => {
-      const mockBook = createMockBook({
-        hash: 'book-123',
-        title: 'My Book',
-        author: 'John Doe',
-        format: 'pdf',
-      });
-      const { result } = renderHook(() => useBookActions());
-
-      act(() => {
-        result.current.removeBook(mockBook);
-      });
-
-      const [, updatedBook] = mockLibraryStoreState.updateBook.mock.calls[0] as [unknown, Book];
-      expect(updatedBook.title).toBe('My Book');
-      expect(updatedBook.author).toBe('John Doe');
-      expect(updatedBook.format).toBe('pdf');
-    });
-
-    it('calls updateBook synchronously without awaiting (fire-and-forget)', () => {
-      const mockBook = createMockBook({ hash: 'book-123' });
-      mockLibraryStoreState.library = [mockBook];
-      const { result } = renderHook(() => useBookActions());
-
-      // removeBook is now synchronous - it fires updateBook but does not await it
-      act(() => {
-        result.current.removeBook(mockBook);
-      });
-
-      // updateBook should have been called immediately (synchronously)
-      expect(mockLibraryStoreState.updateBook).toHaveBeenCalledTimes(1);
-    });
-
-    it('rolls back library on persistence failure and shows error toast', async () => {
-      const mockBook = createMockBook({ hash: 'book-123' });
-      const originalLibrary = [mockBook];
-      mockLibraryStoreState.library = originalLibrary;
-
-      // Make updateBook reject to simulate server failure
-      mockLibraryStoreState.updateBook = vi.fn().mockRejectedValue(new Error('Server error'));
-
-      const { result } = renderHook(() => useBookActions());
-
-      act(() => {
-        result.current.removeBook(mockBook);
-      });
-
-      // Wait for the catch handler to execute
-      await vi.waitFor(() => {
-        expect(mockLibraryStoreState.setLibrary).toHaveBeenCalled();
-      });
-
-      // Library should have been rolled back
-      expect(mockLibraryStoreState.setLibrary).toHaveBeenCalledWith(originalLibrary);
-
-      // Error toast should have been shown
-      expect(mockDispatch).toHaveBeenCalledWith('toast', {
-        type: 'error',
-        message: 'Failed to remove book',
-      });
-    });
-  });
-
   describe('bulkSetReadingStatus', () => {
     it('updates multiple books and exits select mode', async () => {
       const books = [
@@ -305,104 +259,41 @@ describe('useBookActions', () => {
   });
 
   describe('bulkRemove', () => {
-    it('soft deletes multiple books and exits select mode immediately', () => {
+    it('clears selection and exits select mode', async () => {
       const books = [createMockBook({ hash: 'book-1' }), createMockBook({ hash: 'book-2' })];
       mockLibraryStoreState.library = books;
       const { result } = renderHook(() => useBookActions());
 
-      act(() => {
-        result.current.bulkRemove(['book-1', 'book-2']);
+      await act(async () => {
+        await result.current.bulkRemove(['book-1', 'book-2']);
       });
 
-      expect(mockLibraryStoreState.updateBook).toHaveBeenCalledTimes(2);
-
-      const calls = mockLibraryStoreState.updateBook.mock.calls as [unknown, Book][];
-      calls.forEach(([, book]) => {
-        expect(book.deletedAt).toBeGreaterThan(0);
-      });
-
-      // Selection should be cleared immediately (optimistic)
       expect(mockLibraryViewStoreState.clearSelection).toHaveBeenCalled();
       expect(mockLibraryViewStoreState.setSelectMode).toHaveBeenCalledWith(false);
     });
 
-    it('uses same deletedAt timestamp for all books', () => {
-      const books = [
-        createMockBook({ hash: 'book-1' }),
-        createMockBook({ hash: 'book-2' }),
-        createMockBook({ hash: 'book-3' }),
-      ];
-      mockLibraryStoreState.library = books;
-      const { result } = renderHook(() => useBookActions());
-
-      act(() => {
-        result.current.bulkRemove(['book-1', 'book-2', 'book-3']);
-      });
-
-      const calls = mockLibraryStoreState.updateBook.mock.calls as [unknown, Book][];
-      const timestamps = calls.map(([, book]) => book.deletedAt);
-
-      // All timestamps should be the same
-      expect(new Set(timestamps).size).toBe(1);
-    });
-
-    it('skips books that are not found in library', () => {
+    it('skips books that are not found in library', async () => {
       const books = [createMockBook({ hash: 'book-1' })];
       mockLibraryStoreState.library = books;
       const { result } = renderHook(() => useBookActions());
 
-      act(() => {
-        result.current.bulkRemove(['book-1', 'nonexistent']);
+      await act(async () => {
+        await result.current.bulkRemove(['book-1', 'nonexistent']);
       });
 
-      expect(mockLibraryStoreState.updateBook).toHaveBeenCalledTimes(1);
-    });
-
-    it('clears selection immediately without waiting for persistence', () => {
-      const books = [createMockBook({ hash: 'book-1' }), createMockBook({ hash: 'book-2' })];
-      mockLibraryStoreState.library = books;
-
-      // Make updateBook return a promise that never resolves (simulating slow server)
-      mockLibraryStoreState.updateBook = vi.fn().mockReturnValue(new Promise(() => {}));
-
-      const { result } = renderHook(() => useBookActions());
-
-      act(() => {
-        result.current.bulkRemove(['book-1', 'book-2']);
-      });
-
-      // Even though updateBook hasn't resolved, selection should already be cleared
+      // Only one book should be processed
       expect(mockLibraryViewStoreState.clearSelection).toHaveBeenCalled();
-      expect(mockLibraryViewStoreState.setSelectMode).toHaveBeenCalledWith(false);
     });
 
-    it('rolls back library on persistence failure and shows error toast', async () => {
-      const books = [createMockBook({ hash: 'book-1' }), createMockBook({ hash: 'book-2' })];
-      mockLibraryStoreState.library = books;
-      const originalLibrary = [...books];
-
-      // Make updateBook reject to simulate server failure
-      mockLibraryStoreState.updateBook = vi.fn().mockRejectedValue(new Error('Server error'));
-
+    it('does nothing for empty books', async () => {
+      mockLibraryStoreState.library = [];
       const { result } = renderHook(() => useBookActions());
 
-      act(() => {
-        result.current.bulkRemove(['book-1', 'book-2']);
+      await act(async () => {
+        await result.current.bulkRemove(['nonexistent']);
       });
 
-      // Wait for the catch handler to execute
-      await vi.waitFor(() => {
-        expect(mockLibraryStoreState.setLibrary).toHaveBeenCalled();
-      });
-
-      // Library should have been rolled back
-      expect(mockLibraryStoreState.setLibrary).toHaveBeenCalledWith(originalLibrary);
-
-      // Error toast should have been shown
-      expect(mockDispatch).toHaveBeenCalledWith('toast', {
-        type: 'error',
-        message: 'Failed to remove books',
-      });
+      expect(mockLibraryViewStoreState.clearSelection).not.toHaveBeenCalled();
     });
   });
 
@@ -460,14 +351,14 @@ describe('useBookActions', () => {
 
       expect(result.current).toHaveProperty('setReadingStatus');
       expect(result.current).toHaveProperty('renameBook');
-      expect(result.current).toHaveProperty('removeBook');
+      expect(result.current).toHaveProperty('permanentlyDeleteBook');
       expect(result.current).toHaveProperty('bulkSetReadingStatus');
       expect(result.current).toHaveProperty('bulkRemove');
       expect(result.current).toHaveProperty('bulkAddToCollection');
 
       expect(typeof result.current.setReadingStatus).toBe('function');
       expect(typeof result.current.renameBook).toBe('function');
-      expect(typeof result.current.removeBook).toBe('function');
+      expect(typeof result.current.permanentlyDeleteBook).toBe('function');
       expect(typeof result.current.bulkSetReadingStatus).toBe('function');
       expect(typeof result.current.bulkRemove).toBe('function');
       expect(typeof result.current.bulkAddToCollection).toBe('function');

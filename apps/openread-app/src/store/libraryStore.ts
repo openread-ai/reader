@@ -5,7 +5,7 @@ import { BOOK_UNGROUPED_NAME } from '@/services/constants';
 import { md5Fingerprint } from '@/utils/md5';
 
 interface LibraryState {
-  library: Book[]; // might contain deleted books
+  library: Book[];
   libraryLoaded: boolean;
   isSyncing: boolean;
   syncProgress: number;
@@ -69,8 +69,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     set({ dirtyBooks });
   },
   clearDirtyBooks: () => set({ dirtyBooks: new Set() }),
-  getVisibleLibrary: () => get().library.filter((book) => !book.deletedAt),
-  getTrashBooks: () => get().library.filter((book) => book.deletedAt != null),
+  getVisibleLibrary: () => get().library,
 
   setCurrentBookshelf: (bookshelf: (Book | BooksGroup)[]) => {
     set({ currentBookshelf: bookshelf });
@@ -139,7 +138,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const groups: Record<string, string> = {};
 
     library.forEach((book) => {
-      if (book.groupName && book.groupName !== BOOK_UNGROUPED_NAME && !book.deletedAt) {
+      if (book.groupName && book.groupName !== BOOK_UNGROUPED_NAME) {
         groups[md5Fingerprint(book.groupName)] = book.groupName;
         let nextSlashIndex = book.groupName.indexOf('/', 0);
         while (nextSlashIndex > 0) {

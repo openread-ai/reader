@@ -21,7 +21,6 @@ import {
 import { useLibraryStore } from '@/store/libraryStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useSettingsStore } from '@/store/settingsStore';
-import { getBooksToAutoPurge } from '@/utils/softDelete';
 import envConfig from '@/services/environment';
 import type { BookDataRecord } from '@/types/book';
 import type { DBBook, DBBookConfig, DBBookNote } from '@/types/records';
@@ -117,8 +116,6 @@ export class SyncWorker {
     error: null,
   };
   private listeners = new Set<(status: SyncWorkerStatus) => void>();
-  private lastPurgeCheck = 0;
-  private readonly PURGE_INTERVAL = 24 * 60 * 60 * 1000; // 1 day
 
   /**
    * Start the background sync worker.
@@ -331,32 +328,42 @@ export class SyncWorker {
       this.pullRemoteNotes(),
       this.pullRemoteSettings(),
     ]);
-    await this.maybeAutoPurge();
   }
 
   /**
-   * Pull remote book changes since lastSyncedAtBooks and merge into library.
+   * Pull remote book changes via hash-based reconciliation.
+   * Sends full local inventory; server returns diff (upserts + removals).
    */
   private async pullRemoteChanges(): Promise<void> {
     if (isOffline()) return;
 
     try {
-      const settings = useSettingsStore.getState().settings;
-      const since = (settings.lastSyncedAtBooks ?? 0) + 1;
+      const library = useLibraryStore.getState().library;
+      const localHashes: Record<string, number> = {};
+      for (const book of library) {
+        localHashes[book.hash] = book.updatedAt || 0;
+      }
 
-      const result = await this.syncClient.pullChanges(since, 'books');
-      const dbBooks = result.books;
-      if (!dbBooks?.length) return;
+      const result = await this.syncClient.pushChanges({
+        reconcile: { books: localHashes },
+      });
+      const reconcile = result.reconcile;
+      if (!reconcile) return;
 
-      const books = dbBooks.map((dbBook) => transformBookFromDB(dbBook as unknown as DBBook));
-      await useLibraryStore.getState().updateBooks(envConfig, books);
-
-      const maxTime = computeMaxTimestamp(dbBooks as unknown as BookDataRecord[]);
-      if (maxTime > 0) {
-        await saveWatermarks({ lastSyncedAtBooks: maxTime });
+      if (reconcile.upsert?.length) {
+        const books = reconcile.upsert.map((b) => transformBookFromDB(b as unknown as DBBook));
+        await useLibraryStore.getState().updateBooks(envConfig, books);
+      }
+      if (reconcile.remove?.length) {
+        const removeSet = new Set(reconcile.remove);
+        const current = useLibraryStore.getState().library;
+        const remaining = current.filter((b) => !removeSet.has(b.hash));
+        useLibraryStore.getState().setLibrary(remaining);
+        const appService = await envConfig.getAppService();
+        await appService.saveLibraryBooks(remaining);
       }
     } catch (error) {
-      console.error('[SyncWorker] Pull remote changes failed:', error);
+      console.error('[SyncWorker] Reconciliation failed:', error);
     }
   }
 
@@ -377,7 +384,7 @@ export class SyncWorker {
       const configs = dbConfigs.map((c) => transformBookConfigFromDB(c as unknown as DBBookConfig));
       const bookDataStore = useBookDataStore.getState();
       // Build lookup map of active (non-deleted) books to skip orphaned configs
-      const library = useLibraryStore.getState().getVisibleLibrary();
+      const library = useLibraryStore.getState().library;
       const bookByHash = new Map(library.map((b) => [b.hash, b]));
 
       for (const config of configs) {
@@ -427,7 +434,7 @@ export class SyncWorker {
       }
 
       // Build lookup map of active (non-deleted) books to skip orphaned notes
-      const library = useLibraryStore.getState().getVisibleLibrary();
+      const library = useLibraryStore.getState().library;
       const bookByHash = new Map(library.map((b) => [b.hash, b]));
 
       for (const [bookHash, bookNotes] of notesByBook) {
@@ -500,34 +507,6 @@ export class SyncWorker {
       }
     } catch (error) {
       console.error('[SyncWorker] Pull remote settings failed:', error);
-    }
-  }
-
-  /**
-   * Auto-purge books that have been in trash longer than retention period.
-   * Runs at most once per day to avoid excessive work.
-   */
-  private async maybeAutoPurge(): Promise<void> {
-    if (Date.now() - this.lastPurgeCheck < this.PURGE_INTERVAL) return;
-    this.lastPurgeCheck = Date.now();
-
-    try {
-      const library = useLibraryStore.getState().library;
-      const toPurge = getBooksToAutoPurge(library);
-      if (!toPurge.length) return;
-
-      const appService = await envConfig.getAppService();
-      for (const book of toPurge) {
-        await appService.deleteBook(book, 'both');
-      }
-
-      // Remove purged books from library
-      const purgeHashes = new Set(toPurge.map((p) => p.hash));
-      const remaining = useLibraryStore.getState().library.filter((b) => !purgeHashes.has(b.hash));
-      useLibraryStore.getState().setLibrary(remaining);
-      console.log(`[SyncWorker] Auto-purged ${toPurge.length} books from trash`);
-    } catch (error) {
-      console.error('[SyncWorker] Auto-purge failed:', error);
     }
   }
 
