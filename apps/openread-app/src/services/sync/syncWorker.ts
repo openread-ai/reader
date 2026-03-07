@@ -465,6 +465,8 @@ export class SyncWorker {
       const library = useLibraryStore.getState().library;
       const bookByHash = new Map(library.map((b) => [b.hash, b]));
 
+      const booksToUpdate: Book[] = [];
+
       for (const config of configs) {
         if (!config.bookHash) continue;
         const book = bookByHash.get(config.bookHash);
@@ -473,7 +475,20 @@ export class SyncWorker {
         const existing = bookDataStore.getConfig(bookKey);
         if (!existing || (config.updatedAt ?? 0) >= (existing.updatedAt ?? 0)) {
           bookDataStore.setConfig(bookKey, { ...existing, ...config });
+
+          // Sync progress from config back to library book for card display
+          if (config.progress) {
+            booksToUpdate.push({ ...book, progress: config.progress, updatedAt: Date.now() });
+          }
         }
+      }
+
+      // Batch-update library books with synced progress
+      if (booksToUpdate.length > 0) {
+        const currentLibrary = useLibraryStore.getState().library;
+        const updateMap = new Map(booksToUpdate.map((b) => [b.hash, b]));
+        const updatedLibrary = currentLibrary.map((b) => updateMap.get(b.hash) ?? b);
+        useLibraryStore.getState().setLibrary(updatedLibrary);
       }
 
       const maxTime = computeMaxTimestamp(dbConfigs as unknown as BookDataRecord[]);
