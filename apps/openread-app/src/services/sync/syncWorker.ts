@@ -27,7 +27,7 @@ import type { DBBook, DBBookConfig, DBBookNote } from '@/types/records';
 import type { SystemSettings } from '@/types/settings';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
-const SYNC_INTERVAL_MS = 10_000;
+const SYNC_INTERVAL_MS = 3_000;
 
 /** Check if the browser is offline. */
 function isOffline(): boolean {
@@ -132,7 +132,7 @@ export class SyncWorker {
       window.addEventListener('offline', this.handleOffline);
     }
 
-    // Subscribe to Supabase Realtime broadcast for instant pull.
+    // Subscribe to Supabase Realtime broadcast for instant reconciliation.
     // Tauri's custom protocol (tauri://localhost) isn't a secure context,
     // so WebSocket fails there — polling is the fallback.
     if (this.userId) {
@@ -140,7 +140,16 @@ export class SyncWorker {
         this.realtimeChannel = supabase
           .channel(`sync:${this.userId}`)
           .on('broadcast', { event: 'books-changed' }, () => {
-            this.pullRemoteChanges();
+            this.reconcileBooks();
+          })
+          .on('broadcast', { event: 'configs-changed' }, () => {
+            this.pullRemoteConfigs();
+          })
+          .on('broadcast', { event: 'notes-changed' }, () => {
+            this.pullRemoteNotes();
+          })
+          .on('broadcast', { event: 'settings-changed' }, () => {
+            this.pullRemoteSettings();
           })
           .subscribe((status) => {
             if (status === 'CHANNEL_ERROR') {
@@ -153,10 +162,10 @@ export class SyncWorker {
       }
     }
 
-    // Run full cycle immediately on start (replay pending + pull remote)
-    this.runSyncCycle();
+    // Run full reconciliation on start (replay pending + reconcile books)
+    this.runFullSyncCycle();
 
-    // Schedule periodic sync cycles (fallback if Realtime disconnects)
+    // Schedule lightweight periodic sync cycles (watermark-based, fast)
     this.intervalId = setInterval(() => this.runSyncCycle(), SYNC_INTERVAL_MS);
   }
 
@@ -213,7 +222,7 @@ export class SyncWorker {
    */
   async pullNow(type?: SyncType): Promise<void> {
     if (type === 'books') {
-      await this.pullRemoteChanges();
+      await this.reconcileBooks();
     } else if (type === 'configs') {
       await this.pullRemoteConfigs();
     } else if (type === 'notes') {
@@ -221,13 +230,8 @@ export class SyncWorker {
     } else if (type === 'settings') {
       await this.pullRemoteSettings();
     } else {
-      // Pull all types in parallel — they query independent tables
-      await Promise.all([
-        this.pullRemoteChanges(),
-        this.pullRemoteConfigs(),
-        this.pullRemoteNotes(),
-        this.pullRemoteSettings(),
-      ]);
+      // Full reconciliation + pull all types in parallel
+      await this.runFullSyncCycle();
     }
   }
 
@@ -244,6 +248,7 @@ export class SyncWorker {
       const roaming = extractRoamingSettings(settings);
       await this.syncClient.pushChanges({ settings: roaming });
       await saveWatermarks({ lastSyncedAtSettings: Date.now() });
+      this.broadcastChange('settings-changed');
     } catch (error) {
       console.error('[SyncWorker] Push settings failed:', error);
     }
@@ -262,6 +267,7 @@ export class SyncWorker {
       await this.syncClient.pushChanges({
         settings: { _collections: collections, _updatedAt: new Date().toISOString() },
       });
+      this.broadcastChange('settings-changed');
     } catch (error) {
       console.error('[SyncWorker] Push collections failed:', error);
     }
@@ -299,6 +305,10 @@ export class SyncWorker {
         lastDrainResult: result,
         error: result.failed > 0 ? `${result.failed} items failed to sync` : null,
       });
+      // After pushing changes, reconcile to pick up cross-device updates
+      if (result.synced > 0) {
+        this.reconcileBooks();
+      }
     } catch (error) {
       this.updateStatus({
         syncing: false,
@@ -317,13 +327,13 @@ export class SyncWorker {
   }
 
   /**
-   * Full sync cycle: drain push queue, then pull remote changes for all entity types.
+   * Lightweight periodic sync: drain queue, then pull configs/notes/settings via watermark.
+   * Books use watermark pull here (fast). Full reconciliation runs separately.
    */
   private async runSyncCycle(): Promise<void> {
     await this.drainQueue();
-    // Pull all types in parallel — they query independent DB tables
     await Promise.all([
-      this.pullRemoteChanges(),
+      this.pullRemoteBooks(),
       this.pullRemoteConfigs(),
       this.pullRemoteNotes(),
       this.pullRemoteSettings(),
@@ -331,10 +341,52 @@ export class SyncWorker {
   }
 
   /**
-   * Pull remote book changes via hash-based reconciliation.
-   * Sends full local inventory; server returns diff (upserts + removals).
+   * Full sync cycle: drain queue, then reconcile books + pull configs/notes/settings.
+   * Used on startup, after pushes, and on Realtime events.
    */
-  private async pullRemoteChanges(): Promise<void> {
+  private async runFullSyncCycle(): Promise<void> {
+    await this.drainQueue();
+    await Promise.all([
+      this.reconcileBooks(),
+      this.pullRemoteConfigs(),
+      this.pullRemoteNotes(),
+      this.pullRemoteSettings(),
+    ]);
+  }
+
+  /**
+   * Fast watermark-based pull for books (used in periodic polling).
+   */
+  private async pullRemoteBooks(): Promise<void> {
+    if (isOffline()) return;
+
+    try {
+      const settings = useSettingsStore.getState().settings;
+      const since = (settings.lastSyncedAtBooks ?? 0) + 1;
+
+      const result = await this.syncClient.pullChanges(since, 'books');
+      const dbBooks = result.books;
+      if (!dbBooks?.length) return;
+
+      const books = dbBooks.map((dbBook) => transformBookFromDB(dbBook as unknown as DBBook));
+      await useLibraryStore.getState().updateBooks(envConfig, books);
+      this.queueMissingDownloads(books);
+
+      const maxTime = computeMaxTimestamp(dbBooks as unknown as BookDataRecord[]);
+      if (maxTime > 0) {
+        await saveWatermarks({ lastSyncedAtBooks: maxTime });
+      }
+    } catch (error) {
+      console.error('[SyncWorker] Pull remote books failed:', error);
+    }
+  }
+
+  /**
+   * Full hash-based reconciliation for books.
+   * Sends full local inventory; server returns diff (upserts + removals).
+   * Used on startup, after pushes, and on Realtime events — not every 10s.
+   */
+  private async reconcileBooks(): Promise<void> {
     if (isOffline()) return;
 
     try {
@@ -546,9 +598,11 @@ export class SyncWorker {
           return true;
         case 'config':
           await this.syncClient.pushChanges({ configs: [item.payload] });
+          this.broadcastChange('configs-changed');
           return true;
         case 'note':
           await this.syncClient.pushChanges({ notes: [item.payload] });
+          this.broadcastChange('notes-changed');
           return true;
         default:
           console.warn(`[SyncWorker] Unknown queue item type: ${item.type}`);

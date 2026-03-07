@@ -309,30 +309,38 @@ export async function POST(req: NextRequest) {
     });
 
   try {
-    // P9.4: Atomic sync via PostgreSQL RPC function.
-    // Notes use set-union merge (P9.8): per-note upsert keyed on (book_hash, id).
-    // - New notes from client → INSERT
-    // - Matching notes → LWW on updated_at / deleted_at (tombstone wins)
-    // - Server-only notes not in client payload → KEPT (never deleted)
-    const dbBooks = transformRecords('books', books as BookDataRecord[]);
-    const dbConfigs = transformRecords('book_configs', configs as BookDataRecord[]);
-    const dbNotes = transformRecords('book_notes', notes as BookDataRecord[]);
+    const hasPushData = books.length > 0 || configs.length > 0 || notes.length > 0;
 
-    const { data: syncResult, error: syncError } = await supabase.rpc('sync_books_atomic', {
-      p_user_id: user.id,
-      p_books: dbBooks,
-      p_configs: dbConfigs,
-      p_notes: dbNotes,
-      p_device_id: deviceId || null,
-    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let resultBooks: any[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let resultConfigs: any[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let resultNotes: any[] = [];
 
-    if (syncError) {
-      throw syncError;
+    // Only run the atomic sync RPC when there's actual data to push.
+    // Reconcile-only requests skip the RPC for speed.
+    if (hasPushData) {
+      const dbBooks = transformRecords('books', books as BookDataRecord[]);
+      const dbConfigs = transformRecords('book_configs', configs as BookDataRecord[]);
+      const dbNotes = transformRecords('book_notes', notes as BookDataRecord[]);
+
+      const { data: syncResult, error: syncError } = await supabase.rpc('sync_books_atomic', {
+        p_user_id: user.id,
+        p_books: dbBooks,
+        p_configs: dbConfigs,
+        p_notes: dbNotes,
+        p_device_id: deviceId || null,
+      });
+
+      if (syncError) {
+        throw syncError;
+      }
+
+      resultBooks = syncResult?.books || [];
+      resultConfigs = syncResult?.configs || [];
+      resultNotes = syncResult?.notes || [];
     }
-
-    const resultBooks = syncResult?.books || [];
-    const resultConfigs = syncResult?.configs || [];
-    const resultNotes = syncResult?.notes || [];
 
     // Populate platform_books for synced books (supplementary, don't fail on errors)
     // Skip soft-deleted books — tombstones must survive for cross-device sync propagation
