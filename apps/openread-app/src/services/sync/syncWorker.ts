@@ -22,7 +22,7 @@ import { useLibraryStore } from '@/store/libraryStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import envConfig from '@/services/environment';
-import type { BookDataRecord } from '@/types/book';
+import type { Book, BookDataRecord } from '@/types/book';
 import type { DBBook, DBBookConfig, DBBookNote } from '@/types/records';
 import type { SystemSettings } from '@/types/settings';
 import type { RealtimeChannel } from '@supabase/supabase-js';
@@ -353,6 +353,8 @@ export class SyncWorker {
       if (reconcile.upsert?.length) {
         const books = reconcile.upsert.map((b) => transformBookFromDB(b as unknown as DBBook));
         await useLibraryStore.getState().updateBooks(envConfig, books);
+        // Queue downloads for books missing local files or covers
+        this.queueMissingDownloads(books);
       }
       if (reconcile.remove?.length) {
         const removeSet = new Set(reconcile.remove);
@@ -364,6 +366,28 @@ export class SyncWorker {
       }
     } catch (error) {
       console.error('[SyncWorker] Reconciliation failed:', error);
+    }
+  }
+
+  /**
+   * Queue downloads for upserted books that are missing local files or covers.
+   */
+  private async queueMissingDownloads(books: Book[]): Promise<void> {
+    try {
+      const appService = await envConfig.getAppService();
+      const { getLocalBookFilename, getCoverFilename } = await import('@/utils/book');
+      const { transferManager } = await import('@/services/transferManager');
+
+      for (const book of books) {
+        if (!book.uploadedAt) continue;
+        const bookExists = await appService.exists(getLocalBookFilename(book), 'Books');
+        const coverExists = await appService.exists(getCoverFilename(book), 'Books');
+        if (!bookExists || !coverExists) {
+          transferManager.queueDownload(book);
+        }
+      }
+    } catch (error) {
+      console.error('[SyncWorker] Failed to queue downloads:', error);
     }
   }
 
