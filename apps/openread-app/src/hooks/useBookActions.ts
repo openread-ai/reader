@@ -255,11 +255,46 @@ export function useBookActions() {
     [addBookToCollection, clearSelection, setSelectMode],
   );
 
+  /**
+   * Permanently delete a book: hard-delete from library, server configs/notes, and storage.
+   * Unlike removeBook (soft-delete), this is irreversible — re-importing the same file starts fresh.
+   */
+  const permanentlyDeleteBook = useCallback(async (book: Book) => {
+    try {
+      const appService = await envConfig.getAppService();
+
+      // Delete local + cloud files
+      await appService.deleteBook(book, 'both');
+
+      // Remove from library entirely (not soft-delete)
+      const { library, setLibrary } = useLibraryStore.getState();
+      setLibrary(library.filter((b) => b.hash !== book.hash));
+      appService.saveLibraryBooks(library.filter((b) => b.hash !== book.hash));
+
+      // Push a tombstone with deletedAt to sync deletion to other devices,
+      // then the server-side auto-purge or a future hard-delete endpoint will clean up.
+      const tombstone: Book = { ...book, deletedAt: Date.now(), updatedAt: Date.now() };
+      enqueueAndSync({ type: 'book', action: 'delete', payload: bookPayload(tombstone) });
+
+      // Clear local book data (configs, notes) by resetting the config
+      const { useBookDataStore } = await import('@/store/bookDataStore');
+      const bookKey = `${book.hash}-${book.format}`;
+      useBookDataStore.getState().setConfig(bookKey, {});
+    } catch (error) {
+      logger.error('Failed to permanently delete book:', error);
+      eventDispatcher.dispatch('toast', {
+        type: 'error',
+        message: 'Failed to permanently delete book',
+      });
+    }
+  }, []);
+
   return {
     // Single actions
     setReadingStatus,
     renameBook,
     removeBook,
+    permanentlyDeleteBook,
     // Bulk actions
     bulkSetReadingStatus,
     bulkRemove,
