@@ -7,6 +7,7 @@ import { useLibraryViewStore } from '@/store/libraryViewStore';
 import { eventDispatcher } from '@/utils/event';
 import envConfig from '@/services/environment';
 import { enqueueAndSync, enqueueBatchAndSync } from '@/services/sync/helpers';
+import { useBookDataStore } from '@/store/bookDataStore';
 import type { Book, ReadingStatus } from '@/types/book';
 import { createLogger } from '@/utils/logger';
 
@@ -268,18 +269,17 @@ export function useBookActions() {
 
       // Remove from library entirely (not soft-delete)
       const { library, setLibrary } = useLibraryStore.getState();
-      setLibrary(library.filter((b) => b.hash !== book.hash));
-      appService.saveLibraryBooks(library.filter((b) => b.hash !== book.hash));
+      const remaining = library.filter((b) => b.hash !== book.hash);
+      setLibrary(remaining);
+      appService.saveLibraryBooks(remaining);
 
-      // Push a tombstone with deletedAt to sync deletion to other devices,
-      // then the server-side auto-purge or a future hard-delete endpoint will clean up.
+      // Push a tombstone with deletedAt to sync deletion to other devices
       const tombstone: Book = { ...book, deletedAt: Date.now(), updatedAt: Date.now() };
       enqueueAndSync({ type: 'book', action: 'delete', payload: bookPayload(tombstone) });
 
-      // Clear local book data (configs, notes) by resetting the config
-      const { useBookDataStore } = await import('@/store/bookDataStore');
+      // Clear local book data (configs, notes, highlights)
       const bookKey = `${book.hash}-${book.format}`;
-      useBookDataStore.getState().setConfig(bookKey, {});
+      useBookDataStore.getState().setConfig(bookKey, { booknotes: [], progress: undefined });
     } catch (error) {
       logger.error('Failed to permanently delete book:', error);
       eventDispatcher.dispatch('toast', {
