@@ -111,11 +111,45 @@ export interface SyncWorkerStatus {
  * Background sync worker.
  * Call start() to begin periodic queue draining.
  */
+/**
+ * Coalescing guard: prevents concurrent runs of an async operation while
+ * ensuring at most one queued re-run when a request arrives mid-execution.
+ * Returns { run, requestRerun, reset } — call reset() in stop() teardown.
+ */
+function createCoalescingGuard() {
+  let busy = false;
+  let pending = false;
+  return {
+    /** Try to enter. Returns true if caller should proceed, false if already busy (re-run queued). */
+    tryEnter(): boolean {
+      if (busy) {
+        pending = true;
+        return false;
+      }
+      busy = true;
+      return true;
+    },
+    /** Call in finally block. Returns true if a re-run was requested while busy. */
+    exit(): boolean {
+      busy = false;
+      if (pending) {
+        pending = false;
+        return true;
+      }
+      return false;
+    },
+    /** Reset state on teardown (stop). */
+    reset() {
+      busy = false;
+      pending = false;
+    },
+  };
+}
+
 export class SyncWorker {
   private intervalId: ReturnType<typeof setInterval> | null = null;
-  private isRunning = false;
-  private isReconciling = false;
-  private pendingDrainRequested = false;
+  private drainGuard = createCoalescingGuard();
+  private reconcileGuard = createCoalescingGuard();
   private syncClient = new SyncClient();
   private realtimeChannel: RealtimeChannel | null = null;
   private userId: string | null = null;
@@ -192,6 +226,8 @@ export class SyncWorker {
       this.realtimeChannel = null;
     }
     this.userId = null;
+    this.drainGuard.reset();
+    this.reconcileGuard.reset();
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', this.handleOnline);
       window.removeEventListener('offline', this.handleOffline);
@@ -204,10 +240,8 @@ export class SyncWorker {
    * isn't stuck waiting for the next periodic cycle.
    */
   async syncNow(): Promise<void> {
-    if (this.isRunning) {
-      this.pendingDrainRequested = true;
-      return;
-    }
+    // drainQueue uses drainGuard internally — if already running,
+    // tryEnter() queues a re-run instead of silently dropping.
     await this.drainQueue();
   }
 
@@ -309,9 +343,7 @@ export class SyncWorker {
       return;
     }
 
-    // Skip if already running
-    if (this.isRunning) return;
-    this.isRunning = true;
+    if (!this.drainGuard.tryEnter()) return;
     this.updateStatus({ syncing: true, error: null });
 
     try {
@@ -332,12 +364,7 @@ export class SyncWorker {
         error: error instanceof Error ? error.message : 'Sync failed',
       });
     } finally {
-      this.isRunning = false;
-
-      // If syncNow() was called while we were draining, re-drain to pick up
-      // items that were enqueued during the previous drain.
-      if (this.pendingDrainRequested) {
-        this.pendingDrainRequested = false;
+      if (this.drainGuard.exit()) {
         this.drainQueue();
       }
     }
@@ -365,8 +392,7 @@ export class SyncWorker {
    */
   private async reconcileBooks(): Promise<void> {
     if (isOffline()) return;
-    if (this.isReconciling) return;
-    this.isReconciling = true;
+    if (!this.reconcileGuard.tryEnter()) return;
 
     try {
       const library = useLibraryStore.getState().library;
@@ -401,7 +427,9 @@ export class SyncWorker {
     } catch (error) {
       console.error('[SyncWorker] Reconciliation failed:', error);
     } finally {
-      this.isReconciling = false;
+      if (this.reconcileGuard.exit()) {
+        this.reconcileBooks();
+      }
     }
   }
 

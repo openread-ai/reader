@@ -64,11 +64,18 @@ async function cleanupDeletedBook(book: Book, remainingLibrary: Book[]): Promise
         return fetch(`/api/sync?book_hash=${encodeURIComponent(book.hash)}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${token}` },
-        }).then(() => syncWorker.broadcast(SYNC_EVENTS.BOOKS));
+        }).then(async (res) => {
+          if (res.ok) {
+            syncWorker.broadcast(SYNC_EVENTS.BOOKS);
+          } else {
+            const body = await res.text().catch(() => '');
+            logger.warn(`Server delete returned ${res.status}`, body.slice(0, 500));
+          }
+        });
       })
-      .catch((err) => createLogger('bookActions').warn('Server delete failed:', err));
+      .catch((err) => logger.warn('Server delete failed:', err));
   } catch (error) {
-    createLogger('bookActions').error('Background cleanup failed:', error);
+    logger.error('Background cleanup failed:', error);
   }
 }
 
