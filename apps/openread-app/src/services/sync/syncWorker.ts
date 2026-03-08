@@ -623,6 +623,10 @@ export class SyncWorker {
   /**
    * Broadcast a sync event to other devices via Supabase Realtime.
    */
+  broadcast(event: string): void {
+    this.broadcastChange(event);
+  }
+
   private broadcastChange(event: string): void {
     if (!this.realtimeChannel) return;
     this.realtimeChannel.send({

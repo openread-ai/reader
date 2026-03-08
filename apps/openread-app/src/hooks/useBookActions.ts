@@ -56,7 +56,7 @@ async function cleanupDeletedBook(book: Book, remainingLibrary: Book[]): Promise
       })
       .catch(() => {});
 
-    // Hard-delete server-side data, then notify other devices
+    // Hard-delete server-side data, then broadcast to other devices
     getAccessToken().then((token) => {
       if (token) {
         fetch(`/api/sync?book_hash=${encodeURIComponent(book.hash)}`, {
@@ -64,7 +64,7 @@ async function cleanupDeletedBook(book: Book, remainingLibrary: Book[]): Promise
           headers: { Authorization: `Bearer ${token}` },
         })
           .then(() => import('@/services/sync/syncWorker'))
-          .then(({ syncWorker }) => syncWorker.syncNow())
+          .then(({ syncWorker }) => syncWorker.broadcast('books-changed'))
           .catch(() => {});
       }
     });
