@@ -174,15 +174,29 @@ export const useProgressSync = (bookKey: string) => {
       } else {
         setConfig(bookKey, { ...filteredSyncedConfig, ...config });
       }
-      if (remoteCFILocation && configCFI) {
-        if (CFI.compare(configCFI, remoteCFILocation) < 0) {
-          if (view) {
-            view.goTo(remoteCFILocation);
+      // Navigate to remote position if it's ahead of local (or local has no position).
+      // Without the !configCFI fallback, books opened for the first time on a device
+      // would never navigate because configCFI is undefined. See issue #62.
+      if (remoteCFILocation && view) {
+        let shouldNavigate = !configCFI;
+        if (configCFI) {
+          try {
+            shouldNavigate = CFI.compare(configCFI, remoteCFILocation) < 0;
+          } catch {
+            logger.warn('CFI compare failed, navigating to remote position');
+            shouldNavigate = true;
+          }
+        }
+        if (shouldNavigate) {
+          try {
+            await view.goTo(remoteCFILocation);
             setHoveredBookKey(null);
             eventDispatcher.dispatch('hint', {
               bookKey,
               message: _('Reading Progress Synced'),
             });
+          } catch (navError) {
+            logger.warn('Navigation to synced position failed', { remoteCFILocation, navError });
           }
         }
       }

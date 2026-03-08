@@ -167,6 +167,21 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
         bookDoc = doc.book;
       }
       const config = await appService.loadBookConfig(book, settings);
+
+      // Merge pre-synced remote config (from pullRemoteConfigs) if it has a newer
+      // reading position. This avoids the flash from page 1 when opening a book
+      // synced from another device — the viewer gets the correct location immediately.
+      const preSynced = useBookDataStore.getState().consumePreSyncedConfig(id);
+      if (
+        preSynced?.location &&
+        typeof preSynced.location === 'string' &&
+        preSynced.location.startsWith('epubcfi(') &&
+        (preSynced.updatedAt ?? 0) >= (config.updatedAt ?? 0)
+      ) {
+        config.location = preSynced.location;
+        if (preSynced.progress) config.progress = preSynced.progress;
+      }
+
       await updateToc(
         bookDoc,
         config.viewSettings?.sortedTOC ?? false,

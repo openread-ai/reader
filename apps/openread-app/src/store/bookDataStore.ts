@@ -20,8 +20,13 @@ interface BookData {
 
 interface BookDataState {
   booksData: { [id: string]: BookData };
+  /** Configs received from pullRemoteConfigs before the book is opened in the reader.
+   *  Keyed by bookHash. Consumed (cleared) by initViewState when the book opens. */
+  preSyncedConfigs: { [bookHash: string]: Partial<BookConfig> };
   getConfig: (key: string | null) => BookConfig | null;
   setConfig: (key: string, partialConfig: Partial<BookConfig>) => void;
+  setPreSyncedConfig: (bookHash: string, config: Partial<BookConfig>) => void;
+  consumePreSyncedConfig: (bookHash: string) => Partial<BookConfig> | null;
   saveConfig: (
     envConfig: EnvConfigType,
     bookKey: string,
@@ -35,6 +40,31 @@ interface BookDataState {
 
 export const useBookDataStore = create<BookDataState>((set, get) => ({
   booksData: {},
+  preSyncedConfigs: {},
+  setPreSyncedConfig: (bookHash: string, config: Partial<BookConfig>) => {
+    set((state) => {
+      const updated = { ...state.preSyncedConfigs, [bookHash]: config };
+      // Cap at 50 entries to prevent unbounded growth
+      const keys = Object.keys(updated);
+      if (keys.length > 50) {
+        delete updated[keys[0]!];
+      }
+      return { preSyncedConfigs: updated };
+    });
+  },
+  consumePreSyncedConfig: (bookHash: string) => {
+    // Atomic read-and-delete inside a single set call
+    let consumed: Partial<BookConfig> | null = null;
+    set((state) => {
+      consumed = state.preSyncedConfigs[bookHash] ?? null;
+      if (consumed) {
+        const { [bookHash]: _, ...rest } = state.preSyncedConfigs;
+        return { preSyncedConfigs: rest };
+      }
+      return state;
+    });
+    return consumed;
+  },
   getBookData: (keyOrId: string) => {
     const id = keyOrId.split('-')[0]!;
     return get().booksData[id] || null;

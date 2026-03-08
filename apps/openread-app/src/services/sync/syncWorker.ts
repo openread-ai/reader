@@ -438,7 +438,6 @@ export class SyncWorker {
         const coverUrls = new Map<string, string>();
         for (const book of needsCover) {
           const coverUrl = await appService.generateCoverImageUrl(book);
-          console.log(`[SyncWorker] Cover URL for ${book.title}:`, coverUrl ? 'generated' : 'null');
           if (coverUrl) {
             coverUrls.set(book.hash, coverUrl);
           }
@@ -488,7 +487,16 @@ export class SyncWorker {
         const bookKey = `${book.hash}-${book.format}`;
         const existing = bookDataStore.getConfig(bookKey);
         if (!existing || (config.updatedAt ?? 0) >= (existing.updatedAt ?? 0)) {
-          bookDataStore.setConfig(bookKey, { ...existing, ...config });
+          const merged = { ...existing, ...config };
+          // Discard malformed CFI location strings from remote
+          if (merged.location && !merged.location.startsWith('epubcfi(')) {
+            delete merged.location;
+          }
+          bookDataStore.setConfig(bookKey, merged);
+
+          // Also store in pre-synced cache so initViewState can merge the location
+          // before FoliateViewer initializes (avoids flash from page 1). See #62.
+          bookDataStore.setPreSyncedConfig(config.bookHash, merged);
 
           // Sync progress from config back to library book for card display
           if (config.progress) {
