@@ -416,6 +416,18 @@ export class SyncWorker {
       const { getCoverFilename } = await import('@/utils/book');
 
       const library = useLibraryStore.getState().library;
+      // Debug: log why books are filtered out of cover download
+      const skipped = library.filter((b) => !b.uploadedAt || b.coverImageUrl);
+      if (skipped.length > 0) {
+        console.log(
+          `[SyncWorker] Cover skip reasons:`,
+          skipped.map((b) => ({
+            title: b.title,
+            uploadedAt: b.uploadedAt,
+            hasCoverUrl: !!b.coverImageUrl,
+          })),
+        );
+      }
       const candidates = library.filter((b) => b.uploadedAt && !b.coverImageUrl);
       const existResults = await Promise.all(
         candidates.map((book) => appService.exists(getCoverFilename(book), 'Books')),
