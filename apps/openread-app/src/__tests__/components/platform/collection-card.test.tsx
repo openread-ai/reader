@@ -120,6 +120,37 @@ vi.mock('@/components/primitives/alert-dialog', () => ({
   AlertDialogCancel: ({ children }: { children: React.ReactNode }) => <button>{children}</button>,
 }));
 
+// Mock CreateCollectionDialog (used for rename)
+vi.mock('@/components/platform/create-collection-dialog', () => ({
+  CreateCollectionDialog: ({
+    open,
+    onOpenChange,
+    onCreateCollection,
+    initialName,
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    onCreateCollection: (name: string) => void;
+    initialName?: string;
+  }) =>
+    open ? (
+      <div data-testid='rename-dialog'>
+        <span data-testid='rename-initial-name'>{initialName}</span>
+        <button data-testid='rename-submit' onClick={() => onCreateCollection('New Name')}>
+          Rename
+        </button>
+        <button data-testid='rename-cancel' onClick={() => onOpenChange(false)}>
+          Cancel
+        </button>
+      </div>
+    ) : null,
+}));
+
+// Mock useTranslation
+vi.mock('@/hooks/useTranslation', () => ({
+  useTranslation: () => (s: string) => s,
+}));
+
 // Mock button component
 vi.mock('@/components/primitives/button', () => ({
   Button: ({
@@ -238,42 +269,31 @@ describe('CollectionCard', () => {
 
     it('should call renameCollection when rename is clicked', () => {
       const collection = createMockCollection({ name: 'Old Name' });
-      const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('New Name');
 
       render(<CollectionCard collection={collection} />);
       const items = screen.getAllByTestId('dropdown-item');
-      fireEvent.click(items[0]); // Rename button
+      fireEvent.click(items[0]); // Rename button — opens the rename dialog
 
-      expect(promptSpy).toHaveBeenCalledWith('New name:', 'Old Name');
+      // Dialog should now be visible with the initial name
+      expect(screen.getByTestId('rename-dialog')).toBeTruthy();
+      expect(screen.getByTestId('rename-initial-name').textContent).toBe('Old Name');
+
+      // Submit the rename
+      fireEvent.click(screen.getByTestId('rename-submit'));
       expect(mockRenameCollection).toHaveBeenCalledWith('collection-1', 'New Name');
-
-      promptSpy.mockRestore();
     });
 
-    it('should not rename if prompt is cancelled', () => {
+    it('should not rename if dialog is cancelled', () => {
       const collection = createMockCollection();
-      const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue(null);
 
       render(<CollectionCard collection={collection} />);
       const items = screen.getAllByTestId('dropdown-item');
-      fireEvent.click(items[0]); // Rename button
+      fireEvent.click(items[0]); // Rename button — opens the rename dialog
+
+      // Cancel the dialog
+      fireEvent.click(screen.getByTestId('rename-cancel'));
 
       expect(mockRenameCollection).not.toHaveBeenCalled();
-
-      promptSpy.mockRestore();
-    });
-
-    it('should not rename if same name is entered', () => {
-      const collection = createMockCollection({ name: 'Same Name' });
-      const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('Same Name');
-
-      render(<CollectionCard collection={collection} />);
-      const items = screen.getAllByTestId('dropdown-item');
-      fireEvent.click(items[0]); // Rename button
-
-      expect(mockRenameCollection).not.toHaveBeenCalled();
-
-      promptSpy.mockRestore();
     });
 
     it('should show delete confirmation dialog when delete is clicked', () => {

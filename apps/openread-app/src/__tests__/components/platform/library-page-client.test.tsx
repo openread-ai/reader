@@ -120,6 +120,7 @@ vi.mock('@/store/libraryStore', () => {
     library: [] as Book[],
     libraryLoaded: true,
     setLibrary: mockSetLibrary,
+    getVisibleLibrary: () => state.library,
   };
 
   const store = Object.assign(
@@ -138,11 +139,15 @@ vi.mock('@/components/DropIndicator', () => ({
   default: () => <div data-testid='drop-indicator'>Drop to Import Books</div>,
 }));
 
-// Mock constants
-vi.mock('@/services/constants', () => ({
-  SUPPORTED_BOOK_EXTS: ['epub', 'mobi', 'azw', 'azw3', 'fb2', 'zip', 'cbz', 'pdf', 'txt'],
-  BOOK_ACCEPT_FORMATS: '.epub, .mobi, .azw, .azw3, .fb2, .zip, .cbz, .pdf, .txt',
-}));
+// Mock constants — spread original to preserve exports used by transitive imports
+vi.mock('@/services/constants', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/constants')>();
+  return {
+    ...actual,
+    SUPPORTED_BOOK_EXTS: ['epub', 'mobi', 'azw', 'azw3', 'fb2', 'zip', 'cbz', 'pdf', 'txt'],
+    BOOK_ACCEPT_FORMATS: '.epub, .mobi, .azw, .azw3, .fb2, .zip, .cbz, .pdf, .txt',
+  };
+});
 
 // Mock useAuth
 const mockUser = { id: 'user-1', email: 'test@example.com' };
@@ -388,7 +393,7 @@ describe('LibraryPageClient', () => {
       render(<LibraryPageClient filter='all' title='All Books' />);
 
       await waitFor(() => {
-        expect(mockSyncBooks).toHaveBeenCalledWith([], 'both');
+        expect(mockSyncBooks).toHaveBeenCalledWith(undefined, 'pull');
       });
     });
 

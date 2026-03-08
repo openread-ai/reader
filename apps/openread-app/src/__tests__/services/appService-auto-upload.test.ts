@@ -49,6 +49,10 @@ vi.mock('@/utils/md5', () => ({
   partialMD5: vi.fn(() => 'mock-hash'),
 }));
 
+vi.mock('@/services/platform/storage', () => ({
+  computeFileHash: vi.fn(() => 'mock-platform-hash'),
+}));
+
 vi.mock('@/utils/book', () => ({
   getDir: vi.fn(() => 'mock-dir'),
   getLocalBookFilename: vi.fn(() => 'mock-local-filename'),
@@ -237,18 +241,14 @@ describe('appService importBook auto-upload', () => {
 
     await appService.importBook(mockFile, books, true, true, false, false);
 
-    // The setTimeout should have been registered but not yet fired
-    expect(mockQueueUpload).not.toHaveBeenCalled();
-
-    // Advance timers by 3 seconds
-    vi.advanceTimersByTime(3000);
-
+    // Auto-upload is called immediately (no delay)
     expect(mockQueueUpload).toHaveBeenCalledTimes(1);
     expect(mockQueueUpload).toHaveBeenCalledWith(
       expect.objectContaining({
         hash: 'mock-hash',
         title: 'Test Book',
       }),
+      1,
     );
   });
 

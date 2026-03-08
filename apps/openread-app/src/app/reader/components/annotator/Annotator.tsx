@@ -531,8 +531,11 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     } catch (e) {
       logger.warn('Failed to add annotations', e);
     }
+    // Re-run when progress changes (page navigation) or when booknotes update
+    // (synced highlights from another device). addAnnotation is idempotent (keyed
+    // by CFI), so duplicate adds on the same page are safe.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progress]);
+  }, [progress, config.booknotes]);
 
   useEffect(() => {
     if (!config.booknotes || !selection?.cfi || !showAnnotationNotes) return;

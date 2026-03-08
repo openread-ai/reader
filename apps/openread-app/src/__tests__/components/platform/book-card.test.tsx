@@ -246,9 +246,8 @@ describe('BookCard', () => {
     it('should render placeholder icon when no cover', () => {
       const book = createMockBook({ coverImageUrl: null });
       render(<BookCard book={book} />);
-      // The placeholder div should be present (contains BookOpen icon)
-      const container = document.querySelector('.bg-gradient-to-br');
-      expect(container).toBeTruthy();
+      // BookCover is always rendered (it handles its own fallback internally)
+      expect(screen.getByTestId('book-cover')).toBeTruthy();
     });
   });
 

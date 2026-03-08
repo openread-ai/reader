@@ -62,7 +62,7 @@ describe('McpConfigTabs Component', () => {
     it('should show placeholder when no key provided', () => {
       render(<McpConfigTabs />);
 
-      expect(screen.getByText(/or_YOUR_API_KEY/)).toBeTruthy();
+      expect(screen.getByText(/your-api-key/)).toBeTruthy();
     });
 
     it('should show config file path above code block', () => {
