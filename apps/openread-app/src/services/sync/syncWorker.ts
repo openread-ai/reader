@@ -125,7 +125,6 @@ export class SyncWorker {
     error: null,
   };
   private listeners = new Set<(status: SyncWorkerStatus) => void>();
-  private downloadAttempted = new Set<string>();
 
   /**
    * Start the background sync worker.
@@ -413,36 +412,44 @@ export class SyncWorker {
       const library = useLibraryStore.getState().library;
       const needsCover: Book[] = [];
       for (const book of library) {
-        if (!book.uploadedAt || this.downloadAttempted.has(book.hash)) continue;
+        if (!book.uploadedAt) continue;
         if (book.coverImageUrl) continue; // already has a local cover URL
         const coverExists = await appService.exists(getCoverFilename(book), 'Books');
         if (!coverExists) {
-          this.downloadAttempted.add(book.hash);
           needsCover.push(book);
         }
       }
 
       if (needsCover.length > 0) {
-        console.log(`[SyncWorker] Downloading covers for ${needsCover.length} books`);
-        await appService.downloadBookCovers(needsCover);
+        console.log(
+          `[SyncWorker] Downloading covers for ${needsCover.length} books:`,
+          needsCover.map((b) => b.title),
+        );
+        try {
+          await appService.downloadBookCovers(needsCover);
+        } catch (dlErr) {
+          console.error('[SyncWorker] Cover download failed:', dlErr);
+          return;
+        }
 
-        // Update cover URLs directly in the library store (bypass updateBooks
-        // which uses LWW merge and would overwrite the new coverImageUrl)
+        // Update cover URLs directly in the library store
         const coverUrls = new Map<string, string>();
         for (const book of needsCover) {
           const coverUrl = await appService.generateCoverImageUrl(book);
+          console.log(`[SyncWorker] Cover URL for ${book.title}:`, coverUrl ? 'generated' : 'null');
           if (coverUrl) {
             coverUrls.set(book.hash, coverUrl);
           }
         }
         if (coverUrls.size > 0) {
-          const library = useLibraryStore.getState().library;
-          const updated = library.map((b) => {
+          const currentLib = useLibraryStore.getState().library;
+          const updated = currentLib.map((b) => {
             const url = coverUrls.get(b.hash);
             return url ? { ...b, coverImageUrl: url } : b;
           });
           useLibraryStore.getState().setLibrary(updated);
           await appService.saveLibraryBooks(updated);
+          console.log(`[SyncWorker] Updated ${coverUrls.size} cover URLs in library`);
         }
       }
     } catch (error) {
