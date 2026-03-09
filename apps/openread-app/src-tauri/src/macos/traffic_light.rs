@@ -1,14 +1,15 @@
 use objc::{msg_send, sel, sel_impl};
 use rand::{distributions::Alphanumeric, Rng};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use tauri::{
     command,
     plugin::{Builder, TauriPlugin},
     Emitter, Runtime, Window,
 };
 
-static mut WINDOW_CONTROL_PAD_X: f64 = 10.0;
-static mut WINDOW_CONTROL_PAD_Y: f64 = 22.0;
-static mut TRAFFIC_LIGHTS_VISIBLE: bool = true;
+static WINDOW_CONTROL_PAD: Mutex<(f64, f64)> = Mutex::new((10.0, 22.0));
+static TRAFFIC_LIGHTS_VISIBLE: AtomicBool = AtomicBool::new(true);
 
 /// Height of the native drag region overlay (matches Tailwind h-11 = 2.75rem = 44px)
 const DRAG_REGION_HEIGHT: f64 = 44.0;
@@ -29,12 +30,11 @@ fn get_drag_view_class() -> &'static objc::runtime::Class {
     use cocoa::base::id;
     use objc::declare::ClassDecl;
     use objc::runtime::{Class, Object, Sel, BOOL, YES};
-    use std::sync::Once;
+    use std::sync::OnceLock;
 
-    static INIT: Once = Once::new();
-    static mut CLASS: *const Class = std::ptr::null();
+    static CLASS: OnceLock<&'static Class> = OnceLock::new();
 
-    INIT.call_once(|| {
+    CLASS.get_or_init(|| {
         let superclass = Class::get("NSView").unwrap();
         let mut decl = ClassDecl::new("OpenreadDragRegionView", superclass).unwrap();
 
@@ -42,6 +42,9 @@ fn get_drag_view_class() -> &'static objc::runtime::Class {
             unsafe {
                 let click_count: i64 = msg_send![event, clickCount];
                 let window: id = msg_send![this, window];
+                if window.is_null() {
+                    return;
+                }
                 if click_count == 2 {
                     // Double-click toggles zoom (maximize), matching standard macOS behavior
                     let _: () = msg_send![window, zoom: this];
@@ -71,11 +74,9 @@ fn get_drag_view_class() -> &'static objc::runtime::Class {
                 sel!(acceptsFirstMouse:),
                 accepts_first_mouse as extern "C" fn(&Object, Sel, id) -> BOOL,
             );
-            CLASS = decl.register();
+            &*decl.register()
         }
-    });
-
-    unsafe { &*CLASS }
+    })
 }
 
 /// Add a transparent native drag region overlay to the top of the window.
@@ -175,18 +176,17 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 
 #[command]
 pub fn set_traffic_lights(window: Window, visible: bool, x: f64, y: f64) {
-    unsafe {
-        TRAFFIC_LIGHTS_VISIBLE = visible;
-        WINDOW_CONTROL_PAD_X = x;
-        WINDOW_CONTROL_PAD_Y = y;
-
-        position_traffic_lights(
-            UnsafeWindowHandle(window.ns_window().expect("Failed to create window handle")),
-            TRAFFIC_LIGHTS_VISIBLE,
-            WINDOW_CONTROL_PAD_X,
-            WINDOW_CONTROL_PAD_Y,
-        );
+    TRAFFIC_LIGHTS_VISIBLE.store(visible, Ordering::Relaxed);
+    {
+        let mut pad = WINDOW_CONTROL_PAD.lock().unwrap_or_else(|e| e.into_inner());
+        *pad = (x, y);
     }
+    position_traffic_lights(
+        UnsafeWindowHandle(window.ns_window().expect("Failed to create window handle")),
+        visible,
+        x,
+        y,
+    );
 }
 
 fn position_traffic_lights(ns_window_handle: UnsafeWindowHandle, visible: bool, x: f64, y: f64) {
@@ -224,6 +224,14 @@ fn position_traffic_lights(ns_window_handle: UnsafeWindowHandle, visible: bool, 
     }
 }
 
+/// Read current traffic light state from globals and reposition.
+/// Used by delegate callbacks that don't have the values locally.
+fn reposition_traffic_lights(ns_window: *mut std::ffi::c_void) {
+    let visible = TRAFFIC_LIGHTS_VISIBLE.load(Ordering::Relaxed);
+    let (pad_x, pad_y) = *WINDOW_CONTROL_PAD.lock().unwrap_or_else(|e| e.into_inner());
+    position_traffic_lights(UnsafeWindowHandle(ns_window), visible, pad_x, pad_y);
+}
+
 #[derive(Debug)]
 struct WindowState<R: Runtime> {
     window: Window<R>,
@@ -237,14 +245,7 @@ pub fn setup_traffic_light_positioner<R: Runtime>(window: Window<R>) {
     use std::ffi::c_void;
 
     // Do the initial positioning
-    unsafe {
-        position_traffic_lights(
-            UnsafeWindowHandle(window.ns_window().expect("Failed to create window handle")),
-            TRAFFIC_LIGHTS_VISIBLE,
-            WINDOW_CONTROL_PAD_X,
-            WINDOW_CONTROL_PAD_Y,
-        );
-    }
+    reposition_traffic_lights(window.ns_window().expect("Failed to create window handle"));
 
     // Ensure they stay in place while resizing the window.
     fn with_window_state<R: Runtime, F: FnOnce(&mut WindowState<R>) -> T, T>(
@@ -281,19 +282,11 @@ pub fn setup_traffic_light_positioner<R: Runtime>(window: Window<R>) {
         extern "C" fn on_window_did_resize<R: Runtime>(this: &Object, _cmd: Sel, notification: id) {
             unsafe {
                 with_window_state(this, |state: &mut WindowState<R>| {
-                    let id = state
-                        .window
-                        .ns_window()
-                        .expect("NS window should exist on state to handle resize")
-                        as id;
-
                     if state.window.label() == "main" || state.window.label().starts_with("reader")
                     {
-                        position_traffic_lights(
-                            UnsafeWindowHandle(id as *mut std::ffi::c_void),
-                            TRAFFIC_LIGHTS_VISIBLE,
-                            WINDOW_CONTROL_PAD_X,
-                            WINDOW_CONTROL_PAD_Y,
+                        reposition_traffic_lights(
+                            state.window.ns_window()
+                                .expect("NS window should exist on state to handle resize"),
                         );
                     }
                 });
@@ -421,14 +414,11 @@ pub fn setup_traffic_light_positioner<R: Runtime>(window: Window<R>) {
                         .emit("did-exit-fullscreen", ())
                         .expect("Failed to emit event");
 
-                    let id = state.window.ns_window().expect("Failed to emit event") as id;
                     if state.window.label() == "main" || state.window.label().starts_with("reader")
                     {
-                        position_traffic_lights(
-                            UnsafeWindowHandle(id as *mut std::ffi::c_void),
-                            TRAFFIC_LIGHTS_VISIBLE,
-                            WINDOW_CONTROL_PAD_X,
-                            WINDOW_CONTROL_PAD_Y,
+                        reposition_traffic_lights(
+                            state.window.ns_window()
+                                .expect("NS window should exist to reposition traffic lights"),
                         );
                     }
                 });

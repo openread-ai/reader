@@ -98,19 +98,13 @@ fn get_files_from_argv(argv: Vec<String>) -> Vec<PathBuf> {
 
 #[cfg(desktop)]
 fn set_window_open_with_files(app: &AppHandle, files: Vec<PathBuf>) {
-    let files = files
+    let paths: Vec<String> = files
         .into_iter()
-        .map(|f| {
-            let file = f
-                .to_string_lossy()
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"");
-            format!("\"{file}\"",)
-        })
-        .collect::<Vec<_>>()
-        .join(",");
+        .map(|f| f.to_string_lossy().into_owned())
+        .collect();
+    let json = serde_json::to_string(&paths).unwrap_or_else(|_| "[]".to_string());
     let window = app.get_webview_window("main").unwrap();
-    let script = format!("window.OPEN_WITH_FILES = [{files}];");
+    let script = format!("window.OPEN_WITH_FILES = {json};");
     if let Err(e) = window.eval(&script) {
         eprintln!("Failed to set open files variable: {e}");
     }
@@ -127,8 +121,12 @@ async fn start_server(window: Window) -> Result<u16, String> {
 }
 
 #[tauri::command]
-fn get_environment_variable(name: &str) -> String {
-    std::env::var(String::from(name)).unwrap_or(String::from(""))
+fn get_environment_variable(name: &str) -> Result<String, String> {
+    const ALLOWED: &[&str] = &["USE_CUSTOM_OAUTH"];
+    if !ALLOWED.contains(&name) {
+        return Err("Access denied".to_string());
+    }
+    Ok(std::env::var(name).unwrap_or_default())
 }
 
 #[tauri::command]
