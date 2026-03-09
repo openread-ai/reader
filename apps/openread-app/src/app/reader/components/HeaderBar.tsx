@@ -10,7 +10,6 @@ import { useSidebarStore } from '@/store/sidebarStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTrafficLightStore } from '@/store/trafficLightStore';
-import { useTrafficLight } from '@/hooks/useTrafficLight';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { getHighlightColorHex } from '../utils/annotatorUtil';
 import { annotationToolQuickActions } from './annotator/AnnotationTools';
@@ -47,7 +46,6 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
   const _ = useTranslation();
   const { envConfig, appService } = useEnv();
   const { settings } = useSettingsStore();
-  const { isTrafficLightVisible } = useTrafficLight();
   const { trafficLightInFullscreen, setTrafficLightVisibility } = useTrafficLightStore();
   const { bookKeys, hoveredBookKey } = useReaderStore();
   const { isDarkMode, systemUIVisible, statusBarHeight } = useThemeStore();
@@ -59,7 +57,9 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
   const view = getView(bookKey);
   const iconSize16 = useResponsiveSize(16);
   const headerRef = useRef<HTMLDivElement>(null);
-  const windowButtonVisible = appService?.hasWindowBar && !isTrafficLightVisible;
+  // On macOS, native traffic lights handle minimize/maximize/close — no HTML buttons needed.
+  // On Windows/Linux, show HTML buttons since there are no native decorations.
+  const windowButtonVisible = appService?.hasWindowBar && !appService?.hasTrafficLight;
 
   const docs = view?.renderer.getContents() ?? [];
   const pointerInDoc = docs.some(({ doc }) => doc?.body?.style.cursor === 'pointer');
@@ -88,14 +88,12 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
   useEffect(() => {
     if (!appService?.hasTrafficLight) return;
     if (isSideBarVisible) return;
+    if (!isTopLeft) return;
 
-    if (hoveredBookKey === bookKey && isTopLeft) {
-      setTrafficLightVisibility(true, { x: 10, y: 20 });
-    } else if (!hoveredBookKey) {
-      setTrafficLightVisibility(false);
-    }
+    // Always keep native traffic lights visible in the reader on macOS
+    setTrafficLightVisibility(true, { x: 10, y: 20 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appService, isSideBarVisible, hoveredBookKey]);
+  }, [appService, isSideBarVisible, isTopLeft]);
 
   // Check if mouse is outside header area to avoid false positive event of MouseLeave when clicking inside header on Windows
   const isMouseOutsideHeader = useCallback((clientX: number, clientY: number) => {

@@ -76,8 +76,20 @@ const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
     interceptWindowOpen();
     if (isTauriAppPlatform()) {
       setTimeout(getSysFontsList, 3000);
+      // Disable the native drag overlay so reader toolbar buttons are clickable.
+      // The platform layout uses its own data-tauri-drag-region spacer div.
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('set_native_drag_region', { enabled: false }).catch(() => {});
+      });
     }
     initDayjs(getLocale());
+    return () => {
+      if (isTauriAppPlatform()) {
+        import('@tauri-apps/api/core').then(({ invoke }) => {
+          invoke('set_native_drag_region', { enabled: true }).catch(() => {});
+        });
+      }
+    };
   }, []);
 
   useEffect(() => {

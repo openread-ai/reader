@@ -189,6 +189,37 @@ pub fn set_traffic_lights(window: Window, visible: bool, x: f64, y: f64) {
     );
 }
 
+#[command]
+pub fn set_native_drag_region(window: Window, enabled: bool) {
+    use cocoa::base::id;
+    use objc::runtime::Class;
+
+    unsafe {
+        let ns_win = window.ns_window().expect("NS window needed for drag region toggle") as id;
+        let content_view: id = msg_send![ns_win, contentView];
+
+        // Find the drag view by its registered ObjC class name
+        if let Some(drag_class) = Class::get("OpenreadDragRegionView") {
+            let subviews: id = msg_send![content_view, subviews];
+            let count: usize = msg_send![subviews, count];
+            for i in 0..count {
+                let subview: id = msg_send![subviews, objectAtIndex: i];
+                let view_class: *const Class = msg_send![subview, class];
+                if std::ptr::eq(view_class, drag_class) {
+                    let hidden: cocoa::base::BOOL =
+                        if enabled { cocoa::base::NO } else { cocoa::base::YES };
+                    let _: () = msg_send![subview, setHidden: hidden];
+                    log::info!(
+                        "Native drag region {}",
+                        if enabled { "enabled" } else { "disabled" }
+                    );
+                    break;
+                }
+            }
+        }
+    }
+}
+
 fn position_traffic_lights(ns_window_handle: UnsafeWindowHandle, visible: bool, x: f64, y: f64) {
     use cocoa::appkit::{NSView, NSWindow, NSWindowButton};
     use cocoa::foundation::NSRect;
