@@ -52,3 +52,4 @@ fastlane/report.xml
 # nix
 result*
 .mcp.json
+.worktrees/
