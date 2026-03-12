@@ -89,7 +89,7 @@ const AIAssistantChat = ({
     isLoadingHistory,
   } = useAIChatStore();
 
-  // Extract book metadata for intelligence classification
+  // Extract book metadata subjects
   const bookSubjects = useMemo(() => {
     const raw = bookDoc?.metadata?.subject;
     if (!raw) return undefined;

@@ -412,7 +412,7 @@ export abstract class BaseAppService implements AppService {
 
       const hash = await partialMD5(fileobj);
 
-      // Compute full-file SHA-256 for cross-user intelligence sharing
+      // Compute full-file SHA-256 for book identification
       const platformHash = await computeFileHash(fileobj);
 
       const existingBook = books.filter((b) => b.hash === hash)[0];
