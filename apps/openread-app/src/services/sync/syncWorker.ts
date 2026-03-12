@@ -183,6 +183,8 @@ export class SyncWorker {
   private syncClient = new SyncClient();
   private realtimeChannel: RealtimeChannel | null = null;
   private userId: string | null = null;
+  /** Cached authenticated Supabase client — avoids creating a new GoTrueClient on every call. */
+  private cachedSupabase: { client: SupabaseClient; token: string } | null = null;
   private _status: SyncWorkerStatus = {
     pending: 0,
     syncing: false,
@@ -259,6 +261,7 @@ export class SyncWorker {
       this.realtimeChannel = null;
     }
     this.userId = null;
+    this.cachedSupabase = null;
     this.drainGuard.reset();
     this.reconcileGuard.reset();
     this.aiPullGuard.reset();
@@ -352,12 +355,21 @@ export class SyncWorker {
 
   /**
    * Get an authenticated Supabase client for direct table access.
-   * Used by AI sync methods that bypass the SyncClient/API route.
+   * Caches the client and only recreates if the token changes.
    */
   private async getAuthenticatedSupabase(): Promise<SupabaseClient | null> {
     const token = await getAccessToken();
     if (!token) return null;
-    return createSupabaseClient(token);
+    if (this.cachedSupabase && this.cachedSupabase.token === token) {
+      return this.cachedSupabase.client;
+    }
+    const client = createSupabaseClient(token);
+    // Disable GoTrue session management — these clients use a static Bearer
+    // token header and don't need auto-refresh timers or session persistence.
+    // Without this, replaced clients leak timers until GC.
+    client.auth.stopAutoRefresh();
+    this.cachedSupabase = { client, token };
+    return client;
   }
 
   /**
@@ -875,22 +887,36 @@ export class SyncWorker {
         }
       }
 
-      // Refresh Zustand store so the UI re-renders with remote data
+      // Refresh Zustand store only if remote data introduced actual changes.
+      // Skipping no-op updates prevents cascading re-renders that can
+      // trigger pushes → broadcasts → pulls → infinite loop.
       if (merged.length > 0) {
-        const { currentBookHash } = useAIChatStore.getState();
+        const { currentBookHash, conversations: existing } = useAIChatStore.getState();
         if (currentBookHash === bookHash) {
           const freshConversations = await aiStore.getConversations(bookHash);
-          useAIChatStore.setState({ conversations: freshConversations });
+          const changed =
+            freshConversations.length !== existing.length ||
+            freshConversations.some(
+              (c, i) => c.id !== existing[i]?.id || c.updatedAt !== existing[i]?.updatedAt,
+            );
+          if (changed) {
+            useAIChatStore.setState({ conversations: freshConversations });
+          }
         }
       }
       if (newMessages.length > 0) {
-        const { activeConversationId } = useAIChatStore.getState();
+        const { activeConversationId, messages: existingMsgs } = useAIChatStore.getState();
         if (
           activeConversationId &&
           newMessages.some((m) => m.conversationId === activeConversationId)
         ) {
           const freshMessages = await aiStore.getMessages(activeConversationId);
-          useAIChatStore.setState({ messages: freshMessages });
+          const changed =
+            freshMessages.length !== existingMsgs.length ||
+            freshMessages.some((m, i) => m.id !== existingMsgs[i]?.id);
+          if (changed) {
+            useAIChatStore.setState({ messages: freshMessages });
+          }
         }
       }
     } catch (error) {
