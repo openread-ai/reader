@@ -18,7 +18,7 @@ import { useAIQuotaStore } from '@/store/aiQuotaStore';
 import { useAuth } from '@/context/AuthContext';
 import { getUserProfilePlan } from '@/utils/access';
 import { eventDispatcher } from '@/utils/event';
-import { CHARS_PER_PAGE } from '@/services/ai/constants';
+import { CHARS_PER_PAGE } from '@/services/ai/constants'; // used by citation nav
 import { createAgenticAdapter } from '@/services/ai';
 import type { AISettings, AIMessage } from '@/services/ai/types';
 import { useBookChapters } from '@/app/reader/hooks/useBookChapters';
@@ -68,7 +68,8 @@ const AIAssistantChat = ({
   bookHash,
   bookTitle,
   authorName,
-  readingFraction,
+  sectionHref,
+  sectionFraction,
   chapterTitle,
   bookFormat,
   bookDoc,
@@ -77,7 +78,10 @@ const AIAssistantChat = ({
   bookHash: string;
   bookTitle: string;
   authorName: string;
-  readingFraction: number;
+  /** Current EPUB section href — used to find the exact chapter. */
+  sectionHref?: string;
+  /** Position within the current section (0–1). */
+  sectionFraction: number;
   chapterTitle?: string;
   bookFormat?: string;
   bookDoc: import('@/libs/document').BookDoc | null;
@@ -106,7 +110,8 @@ const AIAssistantChat = ({
     bookHash,
     bookTitle,
     authorName,
-    readingFraction,
+    sectionHref,
+    sectionFraction,
     chapterTitle,
     bookFormat,
     bookSubjects,
@@ -120,7 +125,8 @@ const AIAssistantChat = ({
       bookHash,
       bookTitle,
       authorName,
-      readingFraction,
+      sectionHref,
+      sectionFraction,
       chapterTitle,
       bookFormat,
       bookSubjects,
@@ -325,11 +331,10 @@ const AIAssistant = ({ bookKey }: AIAssistantProps) => {
   const bookTitle = bookData?.book?.title || 'Unknown';
   const authorName = bookData?.book?.author || '';
   const bookFormat = bookData?.book?.format;
-  // pageinfo.current is 0-indexed and depends on screen/font size.
-  // Compute reading fraction (0–1) so the AI pipeline can map to character offsets.
-  const rendererPage = progress?.pageinfo?.current ?? 0;
-  const rendererTotal = progress?.pageinfo?.total ?? 0;
-  const readingFraction = rendererTotal > 0 ? (rendererPage + 1) / rendererTotal : 0;
+  const sectionHref = progress?.sectionHref || undefined;
+  const sectionPage = progress?.section;
+  const sectionFraction =
+    sectionPage && sectionPage.total > 0 ? (sectionPage.current + 1) / sectionPage.total : 0;
   const chapterTitle = progress?.sectionLabel || undefined;
   const aiSettings = settings?.aiSettings;
 
@@ -388,7 +393,8 @@ const AIAssistant = ({ bookKey }: AIAssistantProps) => {
       bookHash={bookHash}
       bookTitle={bookTitle}
       authorName={authorName}
-      readingFraction={readingFraction}
+      sectionHref={sectionHref}
+      sectionFraction={sectionFraction}
       chapterTitle={chapterTitle}
       bookFormat={bookFormat}
       bookDoc={bookData?.bookDoc ?? null}
