@@ -18,7 +18,6 @@ import { useAIQuotaStore } from '@/store/aiQuotaStore';
 import { useAuth } from '@/context/AuthContext';
 import { getUserProfilePlan } from '@/utils/access';
 import { eventDispatcher } from '@/utils/event';
-import { CHARS_PER_PAGE } from '@/services/ai/constants'; // used by citation nav
 import { createAgenticAdapter } from '@/services/ai';
 import type { AISettings, AIMessage } from '@/services/ai/types';
 import { useBookChapters } from '@/app/reader/hooks/useBookChapters';
@@ -346,34 +345,32 @@ const AIAssistant = ({ bookKey }: AIAssistantProps) => {
     }
   }, [token, userId, aiSettings?.enabled, fetchInitialQuota]);
 
-  // Listen for citation link clicks — navigate the reader to the cited page.
-  // Page numbers are character-based (CHARS_PER_PAGE), converted to a fraction
-  // of total book content for goToFraction().
+  // Listen for citation link clicks — navigate the reader to the cited offset.
+  // Character offset is converted to a fraction of total book content for goToFraction().
   const { getChapters: getChaptersForNav } = useBookChapters(bookData?.bookDoc ?? null);
   useEffect(() => {
-    const handleNavigateToPage = async (event: CustomEvent) => {
-      const page = event.detail?.page;
-      if (typeof page !== 'number' || page < 1) return;
+    const handleNavigateToOffset = async (event: CustomEvent) => {
+      const offset = event.detail?.offset;
+      if (typeof offset !== 'number' || offset < 0) return;
 
       const view = getView(bookKey);
       if (!view) return;
 
-      // Compute fraction from character-based page number
       const chapters = await getChaptersForNav();
       const totalChars = chapters.reduce((sum, ch) => sum + ch.text.length, 0);
       if (totalChars === 0) return;
 
-      const fraction = Math.min(1, Math.max(0, ((page - 1) * CHARS_PER_PAGE) / totalChars));
+      const fraction = Math.min(1, Math.max(0, offset / totalChars));
       console.log(
-        `[citation-nav] page ${page} → fraction ${fraction.toFixed(4)} | ` +
+        `[citation-nav] offset ${offset} → fraction ${fraction.toFixed(4)} | ` +
           `totalChars: ${totalChars}, chapters: ${chapters.length}`,
       );
       view.goToFraction(fraction);
     };
 
-    eventDispatcher.on('navigate-to-page', handleNavigateToPage);
+    eventDispatcher.on('navigate-to-offset', handleNavigateToOffset);
     return () => {
-      eventDispatcher.off('navigate-to-page', handleNavigateToPage);
+      eventDispatcher.off('navigate-to-offset', handleNavigateToOffset);
     };
   }, [bookKey, getView, getChaptersForNav]);
 
