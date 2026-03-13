@@ -355,6 +355,10 @@ const AIAssistant = ({ bookKey }: AIAssistantProps) => {
       if (totalChars === 0) return;
 
       const fraction = Math.min(1, Math.max(0, ((page - 1) * CHARS_PER_PAGE) / totalChars));
+      console.log(
+        `[citation-nav] page ${page} → fraction ${fraction.toFixed(4)} | ` +
+          `totalChars: ${totalChars}, chapters: ${chapters.length}`,
+      );
       view.goToFraction(fraction);
     };
 
