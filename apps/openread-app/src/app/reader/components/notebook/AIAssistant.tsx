@@ -347,11 +347,31 @@ const AIAssistant = ({ bookKey }: AIAssistantProps) => {
     }
   }, [token, userId, aiSettings?.enabled, fetchInitialQuota]);
 
-  // Listen for citation link clicks — navigate the reader to the cited passage.
-  // Character offset is resolved to the correct spine section via chapter mapping,
-  // then interpolated within the section's byte-weighted fraction range.
+  // Listen for citation link clicks — navigate the reader to the cited chapter/passage.
   const { getChapters: getChaptersForNav } = useBookChapters(bookData?.bookDoc ?? null);
   useEffect(() => {
+    // Chapter-index citations (full-text tier): openread://ch/INDEX
+    const handleNavigateToChapter = async (event: CustomEvent) => {
+      const chapterIndex = event.detail?.chapterIndex;
+      if (typeof chapterIndex !== 'number' || chapterIndex < 0) return;
+
+      const view = getView(bookKey);
+      if (!view) return;
+
+      const chapters = await getChaptersForNav();
+      if (chapterIndex >= chapters.length) return;
+
+      const chapter = chapters[chapterIndex]!;
+      const sectionFracs = view.getSectionFractions();
+      const fraction = sectionFracs[chapter.index] ?? 0;
+
+      console.log(
+        `[citation-nav] ch:${chapterIndex} → "${chapter.title}" (spine ${chapter.index}) → fraction ${fraction.toFixed(4)}`,
+      );
+      view.goToFraction(fraction);
+    };
+
+    // Char-offset citations (tool-based tier): openread://loc/OFFSET
     const handleNavigateToOffset = async (event: CustomEvent) => {
       const offset = event.detail?.offset;
       if (typeof offset !== 'number' || offset < 0) return;
@@ -362,7 +382,6 @@ const AIAssistant = ({ bookKey }: AIAssistantProps) => {
       const chapters = await getChaptersForNav();
       if (chapters.length === 0) return;
 
-      // Find which chapter contains this character offset
       let cum = 0;
       let chapterIdx = chapters.length - 1;
       for (let i = 0; i < chapters.length; i++) {
@@ -377,7 +396,6 @@ const AIAssistant = ({ bookKey }: AIAssistantProps) => {
       const charInChapter = Math.max(0, offset - cum);
       const charFrac = chapter.text.length > 0 ? charInChapter / chapter.text.length : 0;
 
-      // Map to the viewer's byte-weighted section fractions for precise navigation
       const sectionFracs = view.getSectionFractions();
       const spineIdx = chapter.index;
       const secStart = sectionFracs[spineIdx] ?? 0;
@@ -385,14 +403,15 @@ const AIAssistant = ({ bookKey }: AIAssistantProps) => {
       const globalFraction = secStart + charFrac * (secEnd - secStart);
 
       console.log(
-        `[citation-nav] offset ${offset} → chapter "${chapter.title}" (spine ${spineIdx}) ` +
-          `→ fraction ${globalFraction.toFixed(4)} | charInChapter: ${charInChapter}/${chapter.text.length}`,
+        `[citation-nav] offset ${offset} → "${chapter.title}" (spine ${spineIdx}) → fraction ${globalFraction.toFixed(4)}`,
       );
       view.goToFraction(globalFraction);
     };
 
+    eventDispatcher.on('navigate-to-chapter', handleNavigateToChapter);
     eventDispatcher.on('navigate-to-offset', handleNavigateToOffset);
     return () => {
+      eventDispatcher.off('navigate-to-chapter', handleNavigateToChapter);
       eventDispatcher.off('navigate-to-offset', handleNavigateToOffset);
     };
   }, [bookKey, getView, getChaptersForNav]);
