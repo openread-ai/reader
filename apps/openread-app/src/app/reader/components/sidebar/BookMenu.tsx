@@ -21,6 +21,8 @@ import { saveSysSettings } from '@/helpers/settings';
 import { setKOSyncSettingsWindowVisible } from '@/app/reader/components/KOSyncSettings';
 import { setProofreadRulesVisibility } from '@/app/reader/components/ProofreadRules';
 import { setAboutDialogVisible } from '@/components/AboutWindow';
+import { useBookDataStore } from '@/store/bookDataStore';
+import { sortTocItems } from '@/utils/toc';
 import useBooksManager from '../../hooks/useBooksManager';
 import MenuItem from '@/components/MenuItem';
 import Menu from '@/components/Menu';
@@ -36,7 +38,8 @@ const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen })
   const { envConfig, appService } = useEnv();
   const { user } = useAuth();
   const { settings } = useSettingsStore();
-  const { bookKeys, recreateViewer, getViewSettings, setViewSettings } = useReaderStore();
+  const { bookKeys, getViewSettings, setViewSettings } = useReaderStore();
+  const { getBookData } = useBookDataStore();
   const { getVisibleLibrary } = useLibraryStore();
   const { openParallelView } = useBooksManager();
   const { sideBarBookKey } = useSidebarStore();
@@ -66,13 +69,25 @@ const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen })
     setIsDropdownOpen?.(false);
   };
   const handleToggleSortTOC = () => {
-    setIsSortedTOC((prev) => !prev);
+    const newSorted = !isSortedTOC;
+    setIsSortedTOC(newSorted);
     setIsDropdownOpen?.(false);
     if (sideBarBookKey) {
       const viewSettings = getViewSettings(sideBarBookKey)!;
-      viewSettings.sortedTOC = !isSortedTOC;
+      viewSettings.sortedTOC = newSorted;
       setViewSettings(sideBarBookKey, viewSettings);
-      recreateViewer(envConfig, sideBarBookKey);
+
+      // Sort TOC in place instead of recreating the entire viewer
+      const bookData = getBookData(sideBarBookKey);
+      const toc = bookData?.bookDoc?.toc;
+      if (toc) {
+        if (newSorted) {
+          sortTocItems(toc);
+        } else {
+          toc.sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+        }
+        eventDispatcher.dispatch('toc-updated', { bookKey: sideBarBookKey });
+      }
     }
   };
   const handleSetParallel = () => {

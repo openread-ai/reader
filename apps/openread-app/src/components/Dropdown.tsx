@@ -133,14 +133,14 @@ const Dropdown: React.FC<DropdownProps> = ({
         >
           {toggleButton}
         </button>
-        <details
-          open={isOpen}
-          role='none'
-          className={clsx('dropdown flex items-center justify-center', className)}
-        >
-          <summary aria-hidden='true' className='list-none' />
-          {isOpen && childrenWithToggle}
-        </details>
+        {isOpen && (
+          <div
+            role='menu'
+            className={clsx('dropdown dropdown-open flex items-center justify-center', className)}
+          >
+            {childrenWithToggle}
+          </div>
+        )}
       </div>
     </div>
   );

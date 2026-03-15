@@ -129,7 +129,7 @@ const updateTocData = (
   return index;
 };
 
-const sortTocItems = (items: TOCItem[]): void => {
+export const sortTocItems = (items: TOCItem[]): void => {
   items.sort((a, b) => {
     if (a.location && b.location) {
       return a.location.current - b.location.current;

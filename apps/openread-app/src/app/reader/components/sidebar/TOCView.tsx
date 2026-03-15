@@ -18,22 +18,17 @@ const getItemIdentifier = (item: TOCItem) => {
   return `toc-item-${item.id}-${href}`;
 };
 
-const useFlattenedTOC = (toc: TOCItem[], expandedItems: Set<string>) => {
-  return useMemo(() => {
-    const flattenTOC = (items: TOCItem[], depth = 0): FlatTOCItem[] => {
-      const result: FlatTOCItem[] = [];
-      items.forEach((item, index) => {
-        const isExpanded = expandedItems.has(getItemIdentifier(item));
-        result.push({ item, depth, index, isExpanded });
-        if (item.subitems && isExpanded) {
-          result.push(...flattenTOC(item.subitems, depth + 1));
-        }
-      });
-      return result;
-    };
-
-    return flattenTOC(toc);
-  }, [toc, expandedItems]);
+/** Flatten a nested TOC tree into a list for rendering. */
+const flattenTOC = (items: TOCItem[], expandedItems: Set<string>, depth = 0): FlatTOCItem[] => {
+  const result: FlatTOCItem[] = [];
+  items.forEach((item, index) => {
+    const isExpanded = expandedItems.has(getItemIdentifier(item));
+    result.push({ item, depth, index, isExpanded });
+    if (item.subitems && isExpanded) {
+      result.push(...flattenTOC(item.subitems, expandedItems, depth + 1));
+    }
+  });
+  return result;
 };
 
 const TOCView: React.FC<{
@@ -164,8 +159,23 @@ const TOCView: React.FC<{
     };
   }, [expandedItems, handleInteraction]);
 
+  // Force re-render when TOC is re-sorted in place (sortedTOC toggle)
+  const [tocVersion, setTocVersion] = useState(0);
+  useEffect(() => {
+    const handleTocUpdated = (event: CustomEvent) => {
+      if (event.detail?.bookKey === bookKey) {
+        setTocVersion((v) => v + 1);
+      }
+    };
+    eventDispatcher.on('toc-updated', handleTocUpdated);
+    return () => {
+      eventDispatcher.off('toc-updated', handleTocUpdated);
+    };
+  }, [bookKey]);
+
   const activeHref = useMemo(() => progress?.sectionHref || null, [progress?.sectionHref]);
-  const flatItems = useFlattenedTOC(toc, expandedItems);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tocVersion forces recalc after in-place sort
+  const flatItems = useMemo(() => flattenTOC(toc, expandedItems), [toc, expandedItems, tocVersion]);
   const activeItemIndex = useMemo(() => {
     return flatItems.findIndex((item) => item.item.href === activeHref);
   }, [flatItems, activeHref]);

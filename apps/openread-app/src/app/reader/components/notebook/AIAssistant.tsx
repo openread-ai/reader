@@ -28,6 +28,39 @@ import { Thread } from '@/components/assistant/Thread';
 function convertToExportedMessages(
   aiMessages: AIMessage[],
 ): { message: ThreadMessage; parentId: string | null }[] {
+  // First pass: reconstruct parentIds for legacy messages (no stored parentId).
+  // Detect branches: consecutive assistant messages after the same user message
+  // are siblings (regenerations), not sequential children.
+  const parentIds: (string | null)[] = [];
+  for (let i = 0; i < aiMessages.length; i++) {
+    const msg = aiMessages[i]!;
+    if (msg.parentId !== undefined) {
+      // New-style message with stored parentId
+      parentIds.push(msg.parentId ?? null);
+    } else if (i === 0) {
+      parentIds.push(null);
+    } else {
+      const prev = aiMessages[i - 1]!;
+      if (msg.role === 'assistant' && prev.role === 'assistant') {
+        // Consecutive assistant messages = regeneration branches.
+        // They share the same parent (the user message before the first assistant).
+        // Walk back to find that parent.
+        let parentIdx = i - 1;
+        while (parentIdx > 0 && aiMessages[parentIdx]!.role === 'assistant') parentIdx--;
+        parentIds.push(aiMessages[parentIdx]?.id ?? null);
+      } else if (msg.role === 'user' && prev.role === 'user') {
+        // Consecutive user messages = re-asked question branches.
+        // They share the same parent (the assistant message before the first user).
+        let parentIdx = i - 1;
+        while (parentIdx > 0 && aiMessages[parentIdx]!.role === 'user') parentIdx--;
+        parentIds.push(aiMessages[parentIdx]?.id ?? null);
+      } else {
+        // Normal alternation: user → assistant or assistant → user
+        parentIds.push(aiMessages[i - 1]?.id ?? null);
+      }
+    }
+  }
+
   return aiMessages.map((msg, idx) => {
     const baseMessage = {
       id: msg.id,
@@ -36,7 +69,6 @@ function convertToExportedMessages(
       metadata: { custom: {} },
     };
 
-    // Build role-specific message to satisfy ThreadMessage union type
     const threadMessage: ThreadMessage =
       msg.role === 'user'
         ? ({
@@ -50,10 +82,7 @@ function convertToExportedMessages(
             status: { type: 'complete' as const, reason: 'stop' as const },
           } as unknown as ThreadMessage);
 
-    return {
-      message: threadMessage,
-      parentId: idx > 0 ? (aiMessages[idx - 1]?.id ?? null) : null,
-    };
+    return { message: threadMessage, parentId: parentIds[idx]! };
   });
 }
 
@@ -151,9 +180,8 @@ const AIAssistantChat = ({
         };
       },
       async append(item) {
-        // item is ExportedMessageRepositoryItem - access the actual message via .message
+        // item is ExportedMessageRepositoryItem with { message, parentId }
         const msg = item.message;
-        // Persist new messages to our store
         if (activeConversationId && msg.role !== 'system') {
           const textContent = msg.content
             .filter(
@@ -164,13 +192,18 @@ const AIAssistantChat = ({
             .join('\n');
 
           if (textContent) {
+            // Deduplicate: skip if this exact message ID already exists in store
+            const current = useAIChatStore.getState().messages;
+            if (current.some((m) => m.id === msg.id)) return;
+
             await addMessage({
               conversationId: activeConversationId,
               role: msg.role as 'user' | 'assistant',
               content: textContent,
+              parentId: item.parentId ?? null,
             });
 
-            // Rename conversation to first user message (first message = index 0 means empty before this)
+            // Rename conversation to first user message
             if (msg.role === 'user' && storedMessages.length === 0) {
               await renameConversation(activeConversationId, textContent.slice(0, 50));
             }
@@ -351,6 +384,7 @@ const AIAssistant = ({ bookKey }: AIAssistantProps) => {
   useEffect(() => {
     const handleNavigateToOffset = async (event: CustomEvent) => {
       const offset = event.detail?.offset;
+      const quoteText = event.detail?.quoteText as string | undefined;
       if (typeof offset !== 'number' || offset < 0) return;
 
       const view = getView(bookKey);
@@ -365,7 +399,15 @@ const AIAssistant = ({ bookKey }: AIAssistantProps) => {
         `[citation-nav] offset ${offset} → fraction ${fraction.toFixed(4)} | ` +
           `totalChars: ${totalChars}, chapters: ${chapters.length}`,
       );
-      view.goToFraction(fraction);
+      await view.goToFraction(fraction);
+
+      // TODO: Flash-highlight the quoted text in the reader for 1.5s
+      // Requires flashHighlight() implementation — see GitHub issue
+      if (quoteText) {
+        console.log(
+          `[citation-nav] quoteText available for highlight: "${quoteText.slice(0, 40)}..."`,
+        );
+      }
     };
 
     eventDispatcher.on('navigate-to-offset', handleNavigateToOffset);
