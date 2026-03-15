@@ -1,13 +1,15 @@
 'use client';
 
 import clsx from 'clsx';
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useMemo } from 'react';
+import Image from 'next/image';
 import { LuMessageSquare, LuPlus } from 'react-icons/lu';
 import { MoreVerticalIcon, Trash2Icon } from 'lucide-react';
 
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAIChatStore } from '@/store/aiChatStore';
 import { useNotebookStore } from '@/store/notebookStore';
+import { useLibraryStore } from '@/store/libraryStore';
 import type { AIConversation } from '@/services/ai/types';
 import { useEnv } from '@/context/EnvContext';
 import {
@@ -16,6 +18,49 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+
+interface BookInfo {
+  cover?: string;
+  title: string;
+}
+
+/** Shows up to 3 book cover thumbnails with a "+N" overflow indicator. Hover shows book titles. */
+const BookThumbnails: React.FC<{
+  bookHashes: string[];
+  bookInfoByHash: Map<string, BookInfo>;
+}> = ({ bookHashes, bookInfoByHash }) => {
+  const maxVisible = 3;
+  const visible = bookHashes.slice(0, maxVisible);
+  const overflow = bookHashes.length - maxVisible;
+  const tooltip = bookHashes
+    .map((h) => bookInfoByHash.get(h)?.title)
+    .filter(Boolean)
+    .join(', ');
+
+  return (
+    <div className='group/thumbs relative flex flex-shrink-0 items-center gap-0.5' title={tooltip}>
+      {visible.map((hash) => {
+        const info = bookInfoByHash.get(hash);
+        return info?.cover ? (
+          <Image
+            key={hash}
+            src={info.cover}
+            alt={info.title}
+            width={14}
+            height={20}
+            className='h-[14px] w-[10px] rounded-[1px] object-cover opacity-60 transition-opacity group-hover/thumbs:opacity-100'
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        ) : null;
+      })}
+      {overflow > 0 && (
+        <span className='text-base-content/40 text-[9px] font-medium'>+{overflow}</span>
+      )}
+    </div>
+  );
+};
 
 interface ChatHistoryViewProps {
   bookKey: string;
@@ -34,7 +79,17 @@ const ChatHistoryView: React.FC<ChatHistoryViewProps> = ({ bookKey }) => {
   } = useAIChatStore();
   const { setNotebookVisible, setNotebookActiveTab } = useNotebookStore();
 
+  const { getVisibleLibrary } = useLibraryStore();
   const bookHash = bookKey.split('-')[0] || '';
+
+  // Map bookHash → { cover, title } for thumbnail display and tooltips
+  const bookInfoByHash = useMemo(() => {
+    const map = new Map<string, BookInfo>();
+    for (const book of getVisibleLibrary()) {
+      map.set(book.hash, { cover: book.coverImageUrl || undefined, title: book.title });
+    }
+    return map;
+  }, [getVisibleLibrary]);
 
   // Load conversations for this book
   useEffect(() => {
@@ -138,6 +193,12 @@ const ChatHistoryView: React.FC<ChatHistoryViewProps> = ({ bookKey }) => {
                 >
                   <p className='text-base-content truncate text-sm'>{conversation.title}</p>
                 </div>
+
+                {/* Book cover thumbnail — shows which book(s) this conversation is about */}
+                <BookThumbnails
+                  bookHashes={[conversation.bookHash]}
+                  bookInfoByHash={bookInfoByHash}
+                />
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>

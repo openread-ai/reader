@@ -28,31 +28,28 @@ import { Thread } from '@/components/assistant/Thread';
 function convertToExportedMessages(
   aiMessages: AIMessage[],
 ): { message: ThreadMessage; parentId: string | null }[] {
-  // First pass: reconstruct parentIds for legacy messages (no stored parentId).
-  // Detect branches: consecutive assistant messages after the same user message
-  // are siblings (regenerations), not sequential children.
+  // Build a set of valid message IDs for parentId validation
+  const validIds = new Set(aiMessages.map((m) => m.id));
+
+  // Reconstruct parentIds using branch detection.
+  // Stored parentIds often reference assistant-ui's internal IDs which don't
+  // match our stored IDs, so we only use them if they're valid.
   const parentIds: (string | null)[] = [];
   for (let i = 0; i < aiMessages.length; i++) {
     const msg = aiMessages[i]!;
-    if (msg.parentId !== undefined) {
-      // New-style message with stored parentId
-      parentIds.push(msg.parentId ?? null);
+
+    // Use stored parentId only if it references a valid message in this set
+    if (msg.parentId && validIds.has(msg.parentId)) {
+      parentIds.push(msg.parentId);
     } else if (i === 0) {
       parentIds.push(null);
     } else {
       const prev = aiMessages[i - 1]!;
-      if (msg.role === 'assistant' && prev.role === 'assistant') {
-        // Consecutive assistant messages = regeneration branches.
-        // They share the same parent (the user message before the first assistant).
-        // Walk back to find that parent.
+      if (msg.role === prev.role) {
+        // Consecutive same-role messages = branches (regenerations).
+        // Walk back to find the last message of the opposite role.
         let parentIdx = i - 1;
-        while (parentIdx > 0 && aiMessages[parentIdx]!.role === 'assistant') parentIdx--;
-        parentIds.push(aiMessages[parentIdx]?.id ?? null);
-      } else if (msg.role === 'user' && prev.role === 'user') {
-        // Consecutive user messages = re-asked question branches.
-        // They share the same parent (the assistant message before the first user).
-        let parentIdx = i - 1;
-        while (parentIdx > 0 && aiMessages[parentIdx]!.role === 'user') parentIdx--;
+        while (parentIdx > 0 && aiMessages[parentIdx]!.role === msg.role) parentIdx--;
         parentIds.push(aiMessages[parentIdx]?.id ?? null);
       } else {
         // Normal alternation: user → assistant or assistant → user

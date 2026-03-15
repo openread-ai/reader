@@ -12,15 +12,15 @@ import { useSidebarStore } from '@/store/sidebarStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useParallelViewStore } from '@/store/parallelViewStore';
-import { isWebAppPlatform } from '@/services/environment';
+// import { isWebAppPlatform } from '@/services/environment'; // disabled: About Openread
 import { eventDispatcher } from '@/utils/event';
 import { FIXED_LAYOUT_FORMATS } from '@/types/book';
-import { DOWNLOAD_READEST_URL } from '@/services/constants';
-import { navigateToLogin } from '@/utils/nav';
-import { saveSysSettings } from '@/helpers/settings';
-import { setKOSyncSettingsWindowVisible } from '@/app/reader/components/KOSyncSettings';
-import { setProofreadRulesVisibility } from '@/app/reader/components/ProofreadRules';
-import { setAboutDialogVisible } from '@/components/AboutWindow';
+// import { DOWNLOAD_READEST_URL } from '@/services/constants'; // disabled: Download Openread
+// import { navigateToLogin } from '@/utils/nav'; // disabled: Discord
+// import { saveSysSettings } from '@/helpers/settings'; // disabled: Discord
+// import { setKOSyncSettingsWindowVisible } from '@/app/reader/components/KOSyncSettings'; // disabled: KOReader
+// import { setProofreadRulesVisibility } from '@/app/reader/components/ProofreadRules'; // disabled: Proofread
+// import { setAboutDialogVisible } from '@/components/AboutWindow'; // disabled: About
 import { useBookDataStore } from '@/store/bookDataStore';
 import { sortTocItems } from '@/utils/toc';
 import useBooksManager from '../../hooks/useBooksManager';
@@ -34,10 +34,10 @@ interface BookMenuProps {
 
 const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen }) => {
   const _ = useTranslation();
-  const router = useRouter();
-  const { envConfig, appService } = useEnv();
-  const { user } = useAuth();
-  const { settings } = useSettingsStore();
+  const _router = useRouter(); // disabled: Discord login redirect
+  const _env = useEnv(); // disabled: Discord uses envConfig
+  const _auth = useAuth(); // disabled: Discord login check
+  const _settings = useSettingsStore(); // disabled: Discord uses settings
   const { bookKeys, getViewSettings, setViewSettings } = useReaderStore();
   const { getBookData } = useBookDataStore();
   const { getVisibleLibrary } = useLibraryStore();
@@ -56,14 +56,9 @@ const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen })
     window.location.reload();
     setIsDropdownOpen?.(false);
   };
-  const showAboutOpenread = () => {
-    setAboutDialogVisible(true);
-    setIsDropdownOpen?.(false);
-  };
-  const downloadOpenread = () => {
-    window.open(DOWNLOAD_READEST_URL, '_blank');
-    setIsDropdownOpen?.(false);
-  };
+  // disabled: About Openread
+  // const showAboutOpenread = () => { setAboutDialogVisible(true); setIsDropdownOpen?.(false); };
+  // const downloadOpenread = () => { window.open(DOWNLOAD_READEST_URL, '_blank'); setIsDropdownOpen?.(false); };
   const handleExportAnnotations = () => {
     eventDispatcher.dispatch('export-annotations', { bookKey: sideBarBookKey });
     setIsDropdownOpen?.(false);
@@ -98,30 +93,12 @@ const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen })
     unsetParallel(bookKeys);
     setIsDropdownOpen?.(false);
   };
-  const showKoSyncSettingsWindow = () => {
-    setKOSyncSettingsWindowVisible(true);
-    setIsDropdownOpen?.(false);
-  };
-  const showProofreadRulesWindow = () => {
-    setProofreadRulesVisibility(true);
-    setIsDropdownOpen?.(false);
-  };
-  const handlePullKOSync = () => {
-    eventDispatcher.dispatch('pull-kosync', { bookKey: sideBarBookKey });
-    setIsDropdownOpen?.(false);
-  };
-  const handlePushKOSync = () => {
-    eventDispatcher.dispatch('push-kosync', { bookKey: sideBarBookKey });
-    setIsDropdownOpen?.(false);
-  };
-  const toggleDiscordPresence = () => {
-    const discordRichPresenceEnabled = !settings.discordRichPresenceEnabled;
-    saveSysSettings(envConfig, 'discordRichPresenceEnabled', discordRichPresenceEnabled);
-    setIsDropdownOpen?.(false);
-    if (discordRichPresenceEnabled && !user) {
-      navigateToLogin(router);
-    }
-  };
+  // disabled: KOReader Sync, Proofread, Discord — can be considered for future
+  // const showKoSyncSettingsWindow = () => { setKOSyncSettingsWindowVisible(true); setIsDropdownOpen?.(false); };
+  // const showProofreadRulesWindow = () => { setProofreadRulesVisibility(true); setIsDropdownOpen?.(false); };
+  // const handlePullKOSync = () => { eventDispatcher.dispatch('pull-kosync', { bookKey: sideBarBookKey }); setIsDropdownOpen?.(false); };
+  // const handlePushKOSync = () => { eventDispatcher.dispatch('push-kosync', { bookKey: sideBarBookKey }); setIsDropdownOpen?.(false); };
+  // const toggleDiscordPresence = () => { ... };
 
   return (
     <Menu
@@ -174,15 +151,17 @@ const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen })
         ) : (
           <MenuItem label={_('Enter Parallel Read')} onClick={handleSetParallel} />
         ))}
-      <hr aria-hidden='true' className='border-base-200 my-1' />
+      {/* KOReader Sync — can be considered for future, now disabled */}
+      {/* <hr aria-hidden='true' className='border-base-200 my-1' />
       <MenuItem label={_('KOReader Sync')} onClick={showKoSyncSettingsWindow} />
       {settings.kosync.enabled && (
         <>
           <MenuItem label={_('Push Progress')} onClick={handlePushKOSync} />
           <MenuItem label={_('Pull Progress')} onClick={handlePullKOSync} />
         </>
-      )}
-      {appService?.isDesktopApp && (
+      )} */}
+      {/* Show on Discord — can be considered for future, now disabled */}
+      {/* {appService?.isDesktopApp && (
         <>
           <hr aria-hidden='true' className='border-base-200 my-1' />
           <MenuItem
@@ -192,9 +171,10 @@ const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen })
             onClick={toggleDiscordPresence}
           />
         </>
-      )}
-      <hr aria-hidden='true' className='border-base-200 my-1' />
-      <MenuItem label={_('Proofread')} onClick={showProofreadRulesWindow} />
+      )} */}
+      {/* Proofread — can be considered for future, now disabled */}
+      {/* <hr aria-hidden='true' className='border-base-200 my-1' />
+      <MenuItem label={_('Proofread')} onClick={showProofreadRulesWindow} /> */}
       <hr aria-hidden='true' className='border-base-200 my-1' />
       <MenuItem label={_('Export Annotations')} onClick={handleExportAnnotations} />
       <MenuItem
@@ -203,9 +183,10 @@ const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen })
         onClick={handleToggleSortTOC}
       />
       <MenuItem label={_('Reload Page')} shortcut='Shift+R' onClick={handleReloadPage} />
-      <hr aria-hidden='true' className='border-base-200 my-1' />
+      {/* About Openread — can be considered for future, now disabled */}
+      {/* <hr aria-hidden='true' className='border-base-200 my-1' />
       {isWebAppPlatform() && <MenuItem label={_('Download Openread')} onClick={downloadOpenread} />}
-      <MenuItem label={_('About Openread')} onClick={showAboutOpenread} />
+      <MenuItem label={_('About Openread')} onClick={showAboutOpenread} /> */}
     </Menu>
   );
 };
