@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useSettingsStore } from '@/store/settingsStore';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('useLibrary');
 
 export const useLibrary = () => {
   const { envConfig } = useEnv();
@@ -14,11 +17,19 @@ export const useLibrary = () => {
     if (isInitiating.current) return;
     isInitiating.current = true;
     const initLibrary = async () => {
-      const appService = await envConfig.getAppService();
-      const settings = await appService.loadSettings();
-      setSettings(settings);
-      setLibrary(await appService.loadLibraryBooks());
-      setLibraryLoaded(true);
+      try {
+        const appService = await envConfig.getAppService();
+        const settings = await appService.loadSettings();
+        setSettings(settings);
+        setLibrary(await appService.loadLibraryBooks());
+      } catch (error) {
+        logger.error('Failed to initialize library', error);
+        // Set empty library so libraryLoaded=true in the store,
+        // allowing sync to proceed even if disk load fails.
+        setLibrary([]);
+      } finally {
+        setLibraryLoaded(true);
+      }
     };
 
     initLibrary();

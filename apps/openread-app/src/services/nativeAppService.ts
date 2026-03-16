@@ -457,9 +457,14 @@ export class NativeAppService extends BaseAppService {
     }
     if (this.isIOSApp) {
       this.isOnlineCatalogsAccessible = this.distChannel !== 'appstore';
-      const res = await getStorefrontRegionCode();
-      if (res.regionCode) {
-        this.storefrontRegionCode = res.regionCode;
+      try {
+        const res = await getStorefrontRegionCode();
+        if (res.regionCode) {
+          this.storefrontRegionCode = res.regionCode;
+        }
+      } catch {
+        // Storefront API unavailable on simulator — non-fatal
+        logger.warn('Failed to get storefront region code (expected on simulator)');
       }
     }
     await this.runMigrations();

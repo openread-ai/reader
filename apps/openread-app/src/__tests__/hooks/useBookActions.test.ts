@@ -32,16 +32,20 @@ const {
 });
 
 // Mock environment config
-vi.mock('@/services/environment', () => ({
-  default: {
-    getAppService: vi.fn().mockResolvedValue({
-      deleteBook: vi.fn().mockResolvedValue(undefined),
-      deleteDir: vi.fn().mockResolvedValue(undefined),
-      saveLibraryBooks: vi.fn().mockResolvedValue(undefined),
-    }),
-  },
-  getAPIBaseUrl: vi.fn(() => 'http://localhost:3000/api'),
-}));
+vi.mock('@/services/environment', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/environment')>();
+  return {
+    ...actual,
+    default: {
+      getAppService: vi.fn().mockResolvedValue({
+        deleteBook: vi.fn().mockResolvedValue(undefined),
+        deleteDir: vi.fn().mockResolvedValue(undefined),
+        saveLibraryBooks: vi.fn().mockResolvedValue(undefined),
+      }),
+    },
+    getAPIBaseUrl: vi.fn(() => 'http://localhost:3000/api'),
+  };
+});
 
 // Mock event dispatcher
 vi.mock('@/utils/event', () => ({

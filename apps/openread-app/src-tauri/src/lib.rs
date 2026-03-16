@@ -401,6 +401,7 @@ pub fn run() {
             };
 
             let win = win_builder.build().unwrap();
+            #[cfg(desktop)]
             let _ = win.center();
 
             #[cfg(target_os = "macos")]

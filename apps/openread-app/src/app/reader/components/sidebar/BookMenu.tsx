@@ -3,14 +3,14 @@ import React from 'react';
 import Image from 'next/image';
 
 import { MdCheck } from 'react-icons/md';
-import { useRouter } from 'next/navigation';
-import { useEnv } from '@/context/EnvContext';
-import { useAuth } from '@/context/AuthContext';
+// import { useRouter } from 'next/navigation'; // disabled: Discord
+// import { useEnv } from '@/context/EnvContext'; // disabled: Discord
+// import { useAuth } from '@/context/AuthContext'; // disabled: Discord
 import { useReaderStore } from '@/store/readerStore';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useSidebarStore } from '@/store/sidebarStore';
 import { useTranslation } from '@/hooks/useTranslation';
-import { useSettingsStore } from '@/store/settingsStore';
+// import { useSettingsStore } from '@/store/settingsStore'; // disabled: Discord
 import { useParallelViewStore } from '@/store/parallelViewStore';
 // import { isWebAppPlatform } from '@/services/environment'; // disabled: About Openread
 import { eventDispatcher } from '@/utils/event';
@@ -34,10 +34,11 @@ interface BookMenuProps {
 
 const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen }) => {
   const _ = useTranslation();
-  const _router = useRouter(); // disabled: Discord login redirect
-  const _env = useEnv(); // disabled: Discord uses envConfig
-  const _auth = useAuth(); // disabled: Discord login check
-  const _settings = useSettingsStore(); // disabled: Discord uses settings
+  // Discord login redirect hooks — disabled for now, uncomment when re-enabling
+  // const router = useRouter();
+  // const env = useEnv();
+  // const auth = useAuth();
+  // const settings = useSettingsStore();
   const { bookKeys, getViewSettings, setViewSettings } = useReaderStore();
   const { getBookData } = useBookDataStore();
   const { getVisibleLibrary } = useLibraryStore();

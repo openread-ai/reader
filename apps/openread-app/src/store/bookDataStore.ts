@@ -4,9 +4,6 @@ import { Book, BookConfig, BookNote } from '@/types/book';
 import { EnvConfigType } from '@/services/environment';
 import { BookDoc } from '@/libs/document';
 import { useLibraryStore } from './libraryStore';
-import { createLogger } from '@/utils/logger';
-
-const logger = createLogger('bookDataStore');
 
 interface BookData {
   /* Persistent data shared with different views of the same book */
@@ -87,17 +84,14 @@ export const useBookDataStore = create<BookDataState>((set, get) => ({
   setConfig: (key: string, partialConfig: Partial<BookConfig>) => {
     set((state: BookDataState) => {
       const id = key.split('-')[0]!;
-      const config = (state.booksData[id]?.config || null) as BookConfig;
-      if (!config) {
-        logger.warn('No config found for book', id);
-        return state;
-      }
-      Object.assign(config, partialConfig);
+      const existing = state.booksData[id];
+      if (!existing) return state;
+      const config = { ...(existing.config || {}), ...partialConfig } as BookConfig;
       return {
         booksData: {
           ...state.booksData,
           [id]: {
-            ...state.booksData[id]!,
+            ...existing,
             config,
           },
         },
@@ -114,12 +108,14 @@ export const useBookDataStore = create<BookDataState>((set, get) => ({
     const { library, setLibrary } = useLibraryStore.getState();
     const bookIndex = library.findIndex((b) => b.hash === bookKey.split('-')[0]);
     if (bookIndex == -1) return;
-    const book = library.splice(bookIndex, 1)[0]!;
-    book.progress = config.progress;
-    book.updatedAt = Date.now();
-    book.downloadedAt = book.downloadedAt || Date.now();
-    library.unshift(book);
-    setLibrary([...library]);
+    const book = {
+      ...library[bookIndex]!,
+      progress: config.progress,
+      updatedAt: Date.now(),
+      downloadedAt: library[bookIndex]!.downloadedAt || Date.now(),
+    };
+    const newLibrary = [book, ...library.filter((_, i) => i !== bookIndex)];
+    setLibrary(newLibrary);
     config.updatedAt = Date.now();
     await appService.saveBookConfig(book, config, settings);
     await appService.saveLibraryBooks(library);

@@ -71,7 +71,7 @@
       "minSdkVersion": 26
     },
     "iOS": {
-      "developmentTeam": "J5W48D69VR",
+      "developmentTeam": "B2Z2249Y44",
       "infoPlist": "./Info-ios.plist",
       "minimumSystemVersion": "15.0"
     },
@@ -158,7 +158,6 @@
       ]
     },
     "deep-link": {
-      "mobile": [{ "host": "app.openread.ai" }],
       "desktop": {
         "schemes": ["openread"]
       }

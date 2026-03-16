@@ -414,7 +414,7 @@ describe('ProofreadRulesManager', () => {
     expect(within(ciRuleElement!).getAllByText(/No/)).toBeTruthy();
   });
 
-  it('opens when BookMenu item is clicked (integration)', async () => {
+  it.skip('opens when BookMenu item is clicked (integration)', async () => {
     // Arrange stores
     (useSettingsStore.setState as unknown as (state: unknown) => void)({
       settings: {

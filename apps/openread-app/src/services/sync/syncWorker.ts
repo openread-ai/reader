@@ -184,6 +184,8 @@ export class SyncWorker {
   private syncClient = new SyncClient();
   private realtimeChannel: RealtimeChannel | null = null;
   private userId: string | null = null;
+  /** When true, all new sync operations are suppressed (set by stop()). */
+  private stopped = true;
   /** Cached authenticated Supabase client — avoids creating a new GoTrueClient on every call. */
   private cachedSupabase: { client: SupabaseClient; token: string } | null = null;
   private _status: SyncWorkerStatus = {
@@ -201,6 +203,7 @@ export class SyncWorker {
    */
   start(userId?: string): void {
     if (this.intervalId) return; // Already started
+    this.stopped = false;
     this.userId = userId ?? null;
 
     // Listen to online/offline events
@@ -253,6 +256,7 @@ export class SyncWorker {
    * Stop the background sync worker.
    */
   stop(): void {
+    this.stopped = true;
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
@@ -487,6 +491,7 @@ export class SyncWorker {
    * AI conversations pulled directly from Supabase (no-op if no book is active).
    */
   private async runSyncCycle(): Promise<void> {
+    if (this.stopped) return;
     await this.drainQueue();
     await Promise.all([
       this.reconcileBooks(),
@@ -504,6 +509,10 @@ export class SyncWorker {
    */
   private async reconcileBooks(): Promise<void> {
     if (isOffline()) return;
+    // Wait for useLibrary() to load books from disk before reconciling.
+    // Without this guard, reconcileBooks() can run before local books are loaded,
+    // and then useLibrary()'s setLibrary() overwrites synced books with stale disk data.
+    if (!useLibraryStore.getState().libraryLoaded) return;
     if (!this.reconcileGuard.tryEnter()) return;
 
     try {
@@ -607,6 +616,7 @@ export class SyncWorker {
    */
   private async pullRemoteConfigs(): Promise<void> {
     if (isOffline()) return;
+    if (!useLibraryStore.getState().libraryLoaded) return;
 
     try {
       const settings = useSettingsStore.getState().settings;
@@ -686,6 +696,7 @@ export class SyncWorker {
    */
   private async pullRemoteNotes(): Promise<void> {
     if (isOffline()) return;
+    if (!useLibraryStore.getState().libraryLoaded) return;
 
     try {
       const settings = useSettingsStore.getState().settings;
