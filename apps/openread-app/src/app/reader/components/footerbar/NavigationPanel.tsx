@@ -63,7 +63,10 @@ export const NavigationPanel: React.FC<NavigationPanelProps> = ({
   );
 
   return (
-    <div className={classes} style={{ bottom: mobileBottomOffset }}>
+    <div
+      className={classes}
+      style={{ bottom: mobileBottomOffset, maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}
+    >
       <div className='flex w-full items-center justify-between gap-x-6'>
         <Slider
           label={_('Reading Progress')}

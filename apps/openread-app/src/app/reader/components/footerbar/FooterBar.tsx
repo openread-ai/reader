@@ -8,9 +8,12 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useDeviceControlStore } from '@/store/deviceStore';
 import { eventDispatcher } from '@/utils/event';
 import { FooterBarProps, NavigationHandlers, FooterBarChildProps } from './types';
+import { computeProgress } from './progressUtils';
 import { debounce } from '@/utils/debounce';
 import { viewPagination } from '../../hooks/usePagination';
+import { setNativeFooterVisible } from '@/services/annotation/nativeMenuBridge';
 import MobileFooterBar from './MobileFooterBar';
+import MobileFooterBarV2 from '../mobile/MobileFooterBarV2';
 import DesktopFooterBar from './DesktopFooterBar';
 import TTSControl from '../tts/TTSControl';
 import { RSVPControl } from '../rsvp';
@@ -42,21 +45,20 @@ const FooterBar: React.FC<FooterBarProps> = ({
   const actionTab = hoveredBookKey === bookKey ? userSelectedTab : '';
   const isVisible = hoveredBookKey === bookKey;
 
+  // Sync native iOS footer bar visibility with web footer visibility
+  useEffect(() => {
+    if (appService?.isIOSApp) {
+      setNativeFooterVisible(isVisible);
+    }
+  }, [isVisible, appService?.isIOSApp]);
+
   const docs = view?.renderer.getContents() ?? [];
   const pointerInDoc = docs.some(({ doc }) => doc?.body?.style.cursor === 'pointer');
 
-  const progressInfo = useMemo(
-    () => (bookFormat === 'pdf' ? section : pageinfo),
+  const { progressValid, progressFraction } = useMemo(
+    () => computeProgress(bookFormat, section, pageinfo),
     [bookFormat, section, pageinfo],
   );
-
-  const progressValid = !!progressInfo && progressInfo.total > 0 && progressInfo.current >= 0;
-  const progressFraction = useMemo(() => {
-    if (progressValid && progressInfo.total > 0 && progressInfo.current >= 0) {
-      return (progressInfo.current + 1) / progressInfo.total;
-    }
-    return 0;
-  }, [progressValid, progressInfo]);
 
   const handleProgressChange = useMemo(
     () =>
@@ -242,7 +244,11 @@ const FooterBar: React.FC<FooterBarProps> = ({
         onFocus={() => !appService?.isMobile && setHoveredBookKey(bookKey)}
         onMouseLeave={() => window.innerWidth >= 640 && setHoveredBookKey('')}
       >
-        <MobileFooterBar {...commonProps} />
+        {appService?.isIOSApp ? (
+          <MobileFooterBarV2 bookKey={bookKey} />
+        ) : (
+          <MobileFooterBar {...commonProps} />
+        )}
         <DesktopFooterBar {...commonProps} />
       </div>
       {isVisible && needHorizontalScroll && (

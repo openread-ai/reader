@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { useReaderStore } from '@/store/readerStore';
 import { useBookDataStore } from '@/store/bookDataStore';
+import { useNotebookStore } from '@/store/notebookStore';
+import { useSidebarStore } from '@/store/sidebarStore';
 import { debounce } from '@/utils/debounce';
 import { ScrollSource } from './usePagination';
 import { eventDispatcher } from '@/utils/event';
@@ -97,15 +99,25 @@ export const useTouchEvent = (
     const { current: touchStart } = touchStartRef;
     const { current: touchEnd } = touchEndRef;
     if (hoveredBookKey && touchEnd) {
+      // Don't dismiss toolbar when notebook or sidebar is open —
+      // the touch is on the iframe underneath, not on the panel.
+      // Read directly from store to avoid stale closure (useEffect deps don't track these).
+      if (
+        useNotebookStore.getState().isNotebookVisible ||
+        useSidebarStore.getState().isSideBarVisible
+      )
+        return;
       const viewSettings = getViewSettings(bookKey)!;
       const deltaY = touchEnd.screenY - touchStart.screenY;
       const deltaX = touchEnd.screenX - touchStart.screenX;
-      if (!viewSettings!.scrolled && !viewSettings!.vertical) {
-        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 10) {
+      if (!(window as unknown as Record<string, unknown>).__sheetOpen) {
+        if (!viewSettings!.scrolled && !viewSettings!.vertical) {
+          if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 10) {
+            setHoveredBookKey(null);
+          }
+        } else {
           setHoveredBookKey(null);
         }
-      } else {
-        setHoveredBookKey(null);
       }
     }
   };
@@ -145,7 +157,12 @@ export const useTouchEvent = (
           setHoveredBookKey(hoveredBookKey ? null : bookKey);
         }
       } else {
-        if (hoveredBookKey) {
+        if (
+          hoveredBookKey &&
+          !useNotebookStore.getState().isNotebookVisible &&
+          !useSidebarStore.getState().isSideBarVisible &&
+          !(window as unknown as Record<string, unknown>).__sheetOpen
+        ) {
           setHoveredBookKey(null);
         }
       }

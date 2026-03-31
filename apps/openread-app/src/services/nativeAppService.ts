@@ -222,9 +222,9 @@ export const nativeFileSystem: FileSystem = {
     } else if (isFileURI(path)) {
       return await new NativeFile(fp, fname, baseDir ? baseDir : null).open();
     } else {
-      if (OS_TYPE === 'android') {
-        // NOTE: RemoteFile is not usable on Android due to a known issue of range request in Android WebView.
-        // see https://issues.chromium.org/issues/40739128
+      if (OS_TYPE === 'android' || OS_TYPE === 'ios') {
+        // Android: RemoteFile unusable due to range request bug (chromium #40739128).
+        // iOS: RemoteFile uses tauri:// URLs which WKWebView blocks for fetch().
         return await new NativeFile(fp, fname, baseDir ? baseDir : null).open();
       } else {
         // NOTE: RemoteFile currently performs about 2× faster than NativeFile

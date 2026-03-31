@@ -143,34 +143,43 @@ export const usePagination = (
             const viewCenterX = viewStartX + viewRect.width / 2;
             const consumed = eventDispatcher.dispatchSync('iframe-single-click');
             if (!consumed) {
-              const centerStartX = viewStartX + viewRect.width * 0.375;
-              const centerEndX = viewStartX + viewRect.width * 0.625;
-              if (
-                viewSettings.disableClick! ||
-                (screenX >= centerStartX && screenX <= centerEndX)
-              ) {
-                // toggle visibility of the header bar and the footer bar
+              // On mobile (iOS/Android), any tap toggles the toolbar.
+              // This follows the Apple HIG pattern (Apple Books, Photos, Safari):
+              // "let people restore hidden elements with a familiar gesture like tapping."
+              // Page turning on mobile is handled by swipe gestures instead.
+              // On desktop, keep the existing zone-based behavior:
+              // center 25% = toggle toolbar, left/right sides = page flip.
+              if (appService?.isMobile) {
                 setHoveredBookKey(hoveredBookKey ? null : bookKey);
               } else {
-                if (hoveredBookKey) {
-                  setHoveredBookKey(null);
-                  return;
-                }
-                if (!viewSettings.disableClick! && screenX >= viewCenterX) {
-                  if (viewSettings.fullscreenClickArea) {
-                    viewPagination(viewRef.current, viewSettings, 'down');
-                  } else if (viewSettings.swapClickArea) {
-                    viewPagination(viewRef.current, viewSettings, 'left');
-                  } else {
-                    viewPagination(viewRef.current, viewSettings, 'right');
+                const centerStartX = viewStartX + viewRect.width * 0.375;
+                const centerEndX = viewStartX + viewRect.width * 0.625;
+                if (
+                  viewSettings.disableClick! ||
+                  (screenX >= centerStartX && screenX <= centerEndX)
+                ) {
+                  setHoveredBookKey(hoveredBookKey ? null : bookKey);
+                } else {
+                  if (hoveredBookKey) {
+                    setHoveredBookKey(null);
+                    return;
                   }
-                } else if (!viewSettings.disableClick! && screenX < viewCenterX) {
-                  if (viewSettings.fullscreenClickArea) {
-                    viewPagination(viewRef.current, viewSettings, 'down');
-                  } else if (viewSettings.swapClickArea) {
-                    viewPagination(viewRef.current, viewSettings, 'right');
-                  } else {
-                    viewPagination(viewRef.current, viewSettings, 'left');
+                  if (!viewSettings.disableClick! && screenX >= viewCenterX) {
+                    if (viewSettings.fullscreenClickArea) {
+                      viewPagination(viewRef.current, viewSettings, 'down');
+                    } else if (viewSettings.swapClickArea) {
+                      viewPagination(viewRef.current, viewSettings, 'left');
+                    } else {
+                      viewPagination(viewRef.current, viewSettings, 'right');
+                    }
+                  } else if (!viewSettings.disableClick! && screenX < viewCenterX) {
+                    if (viewSettings.fullscreenClickArea) {
+                      viewPagination(viewRef.current, viewSettings, 'down');
+                    } else if (viewSettings.swapClickArea) {
+                      viewPagination(viewRef.current, viewSettings, 'right');
+                    } else {
+                      viewPagination(viewRef.current, viewSettings, 'left');
+                    }
                   }
                 }
               }

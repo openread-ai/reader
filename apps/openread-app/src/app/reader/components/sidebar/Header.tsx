@@ -23,7 +23,6 @@ const SidebarHeader: React.FC<{
   const iconSize14 = useResponsiveSize(14);
   const iconSize18 = useResponsiveSize(18);
   const iconSize22 = useResponsiveSize(22);
-
   return (
     <div
       className={clsx(

@@ -1,11 +1,18 @@
 import clsx from 'clsx';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { PiDotsThreeVerticalBold } from 'react-icons/pi';
+import {
+  PiDotsThreeVerticalBold,
+  PiCaretLeftBold,
+  PiChatCircleBold,
+  PiMagnifyingGlassBold,
+} from 'react-icons/pi';
+import { RxSlider } from 'react-icons/rx';
 
 import { Insets } from '@/types/misc';
 import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
 import { useReaderStore } from '@/store/readerStore';
+import { useNotebookStore } from '@/store/notebookStore';
 import { useSidebarStore } from '@/store/sidebarStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -14,6 +21,7 @@ import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { getHighlightColorHex } from '../utils/annotatorUtil';
 import { annotationToolQuickActions } from './annotator/AnnotationTools';
 import { AnnotationToolType } from '@/types/annotator';
+import { eventDispatcher } from '@/utils/event';
 import { saveViewSettings } from '@/helpers/settings';
 import { HighlighterIcon } from '@/components/HighlighterIcon';
 import Dropdown from '@/components/Dropdown';
@@ -33,6 +41,7 @@ interface HeaderBarProps {
   isHoveredAnim: boolean;
   gridInsets: Insets;
   onCloseBook: (bookKey: string) => void;
+  onToggleProgress?: () => void;
 }
 
 const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -42,6 +51,7 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
   isHoveredAnim,
   gridInsets,
   onCloseBook,
+  onToggleProgress,
 }) => {
   const _ = useTranslation();
   const { envConfig, appService } = useEnv();
@@ -50,6 +60,8 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
   const { bookKeys, hoveredBookKey } = useReaderStore();
   const { isDarkMode, systemUIVisible, statusBarHeight } = useThemeStore();
   const { isSideBarVisible } = useSidebarStore();
+  const isNotebookVisible = useNotebookStore((s) => s.isNotebookVisible);
+  const notebookOnAI = useNotebookStore((s) => s.notebookActiveTab === 'ai');
   const { getView, getViewSettings, setHoveredBookKey } = useReaderStore();
   const viewSettings = getViewSettings(bookKey);
 
@@ -159,92 +171,165 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
           }
         }}
       >
-        <div className='header-tools-start bg-base-100 sidebar-bookmark-toggler z-20 flex h-full items-center gap-x-4 pe-2 max-[350px]:gap-x-2'>
-          <div className='hidden sm:flex'>
-            <SidebarToggler bookKey={bookKey} />
-          </div>
-          <BookmarkToggler bookKey={bookKey} />
-          <TranslationToggler bookKey={bookKey} />
-          {enableAnnotationQuickActions && (
-            <Dropdown
-              label={
-                annotationQuickAction
-                  ? _('Disable Quick Action')
-                  : _('Enable Quick Action on Selection')
-              }
-              className='exclude-title-bar-mousedown dropdown-bottom'
-              menuClassName='dropdown-center'
-              buttonClassName={clsx(
-                'btn btn-ghost h-8 min-h-8 w-8 p-0',
-                viewSettings?.annotationQuickAction && 'bg-base-300/50',
-              )}
-              toggleButton={
-                annotationQuickAction === 'highlight' || annotationQuickAction === null ? (
-                  <HighlighterIcon
-                    size={iconSize16}
-                    tipColor={annotationQuickAction === null ? '#8F8F8F' : highlightHexColor}
-                    tipStyle={{
-                      opacity: annotationQuickAction === null ? 0.5 : 0.8,
-                      mixBlendMode: isDarkMode ? 'screen' : 'multiply',
+        {appService?.isMobile ? (
+          <>
+            <div className='bg-base-100 z-20 flex h-full items-center gap-x-2'>
+              <button
+                className='btn btn-ghost h-8 min-h-8 w-8 p-0'
+                onClick={() => {
+                  setHoveredBookKey(null);
+                  onCloseBook(bookKey);
+                }}
+                aria-label={_('Back to Library')}
+              >
+                <PiCaretLeftBold size={iconSize16} />
+              </button>
+              <span className='line-clamp-1 max-w-[40vw] text-xs font-semibold'>{bookTitle}</span>
+            </div>
+            <div className='bg-base-100 z-20 ms-auto flex h-full items-center gap-x-3'>
+              {appService?.isIOSApp && (
+                <>
+                  <button
+                    className='btn btn-ghost h-8 min-h-8 w-8 p-0'
+                    onClick={() => {
+                      eventDispatcher.dispatch('search-term', { bookKey });
                     }}
+                    aria-label={_('Search')}
+                  >
+                    <PiMagnifyingGlassBold size={iconSize16} />
+                  </button>
+                  <button
+                    className='btn btn-ghost h-8 min-h-8 w-8 p-0'
+                    onClick={onToggleProgress}
+                    aria-label={_('Reading Progress')}
+                  >
+                    <RxSlider size={iconSize16} />
+                  </button>
+                </>
+              )}
+              <BookmarkToggler bookKey={bookKey} />
+              {!appService?.isIOSApp && (
+                <button
+                  className={clsx(
+                    'btn btn-ghost h-8 min-h-8 w-8 p-0',
+                    isNotebookVisible && notebookOnAI && 'bg-base-300/50',
+                  )}
+                  onClick={() => {
+                    const { setNotebookVisible, setNotebookActiveTab } =
+                      useNotebookStore.getState();
+                    if (isNotebookVisible && notebookOnAI) {
+                      setNotebookVisible(false);
+                    } else {
+                      setNotebookVisible(true);
+                      setNotebookActiveTab('ai');
+                    }
+                  }}
+                  aria-label={_('AI Chat')}
+                >
+                  <PiChatCircleBold size={iconSize16} />
+                </button>
+              )}
+              <Dropdown
+                label={_('More Options')}
+                className='exclude-title-bar-mousedown dropdown-bottom dropdown-end'
+                buttonClassName='btn btn-ghost h-8 min-h-8 w-8 p-0'
+                toggleButton={<PiDotsThreeVerticalBold size={iconSize16} />}
+                onToggle={handleToggleDropdown}
+              >
+                <ViewMenu bookKey={bookKey} />
+              </Dropdown>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className='header-tools-start bg-base-100 sidebar-bookmark-toggler z-20 flex h-full items-center gap-x-4 pe-2 max-[350px]:gap-x-2'>
+              <div className='hidden sm:flex'>
+                <SidebarToggler bookKey={bookKey} />
+              </div>
+              <BookmarkToggler bookKey={bookKey} />
+              <TranslationToggler bookKey={bookKey} />
+              {enableAnnotationQuickActions && (
+                <Dropdown
+                  label={
+                    annotationQuickAction
+                      ? _('Disable Quick Action')
+                      : _('Enable Quick Action on Selection')
+                  }
+                  className='exclude-title-bar-mousedown dropdown-bottom'
+                  menuClassName='dropdown-center'
+                  buttonClassName={clsx(
+                    'btn btn-ghost h-8 min-h-8 w-8 p-0',
+                    viewSettings?.annotationQuickAction && 'bg-base-300/50',
+                  )}
+                  toggleButton={
+                    annotationQuickAction === 'highlight' || annotationQuickAction === null ? (
+                      <HighlighterIcon
+                        size={iconSize16}
+                        tipColor={annotationQuickAction === null ? '#8F8F8F' : highlightHexColor}
+                        tipStyle={{
+                          opacity: annotationQuickAction === null ? 0.5 : 0.8,
+                          mixBlendMode: isDarkMode ? 'screen' : 'multiply',
+                        }}
+                      />
+                    ) : (
+                      <AnnotationToolQuickActionIcon size={iconSize16} />
+                    )
+                  }
+                  onToggle={handleToggleDropdown}
+                >
+                  <QuickActionMenu
+                    selectedAction={viewSettings.annotationQuickAction}
+                    onActionSelect={handleAnnotationQuickActionSelect}
                   />
-                ) : (
-                  <AnnotationToolQuickActionIcon size={iconSize16} />
-                )
-              }
-              onToggle={handleToggleDropdown}
+                </Dropdown>
+              )}
+            </div>
+
+            <div
+              role='contentinfo'
+              aria-label={_('Title') + ' - ' + bookTitle}
+              className={clsx(
+                'header-title z-15 bg-base-100 pointer-events-none hidden flex-1 items-center justify-center sm:flex',
+                !windowButtonVisible && 'absolute inset-0',
+              )}
             >
-              <QuickActionMenu
-                selectedAction={viewSettings.annotationQuickAction}
-                onActionSelect={handleAnnotationQuickActionSelect}
+              <div
+                aria-hidden='true'
+                className={clsx(
+                  'line-clamp-1 text-center text-xs font-semibold',
+                  !windowButtonVisible && 'max-w-[50%]',
+                )}
+              >
+                {bookTitle}
+              </div>
+            </div>
+
+            <div className='header-tools-end bg-base-100 z-20 ms-auto flex h-full items-center gap-x-4 ps-2 max-[350px]:gap-x-2'>
+              <SettingsToggler bookKey={bookKey} />
+              <NotebookToggler bookKey={bookKey} />
+              <Dropdown
+                label={_('View Options')}
+                className='exclude-title-bar-mousedown dropdown-bottom dropdown-end'
+                buttonClassName='btn btn-ghost h-8 min-h-8 w-8 p-0'
+                toggleButton={<PiDotsThreeVerticalBold size={iconSize16} />}
+                onToggle={handleToggleDropdown}
+              >
+                <ViewMenu bookKey={bookKey} />
+              </Dropdown>
+
+              <WindowButtons
+                className='window-buttons flex h-full items-center'
+                headerRef={headerRef}
+                showMinimize={bookKeys.length == 1 && windowButtonVisible}
+                showMaximize={bookKeys.length == 1 && windowButtonVisible}
+                onClose={() => {
+                  setHoveredBookKey(null);
+                  onCloseBook(bookKey);
+                }}
               />
-            </Dropdown>
-          )}
-        </div>
-
-        <div
-          role='contentinfo'
-          aria-label={_('Title') + ' - ' + bookTitle}
-          className={clsx(
-            'header-title z-15 bg-base-100 pointer-events-none hidden flex-1 items-center justify-center sm:flex',
-            !windowButtonVisible && 'absolute inset-0',
-          )}
-        >
-          <div
-            aria-hidden='true'
-            className={clsx(
-              'line-clamp-1 text-center text-xs font-semibold',
-              !windowButtonVisible && 'max-w-[50%]',
-            )}
-          >
-            {bookTitle}
-          </div>
-        </div>
-
-        <div className='header-tools-end bg-base-100 z-20 ms-auto flex h-full items-center gap-x-4 ps-2 max-[350px]:gap-x-2'>
-          <SettingsToggler bookKey={bookKey} />
-          <NotebookToggler bookKey={bookKey} />
-          <Dropdown
-            label={_('View Options')}
-            className='exclude-title-bar-mousedown dropdown-bottom dropdown-end'
-            buttonClassName='btn btn-ghost h-8 min-h-8 w-8 p-0'
-            toggleButton={<PiDotsThreeVerticalBold size={iconSize16} />}
-            onToggle={handleToggleDropdown}
-          >
-            <ViewMenu bookKey={bookKey} />
-          </Dropdown>
-
-          <WindowButtons
-            className='window-buttons flex h-full items-center'
-            headerRef={headerRef}
-            showMinimize={bookKeys.length == 1 && windowButtonVisible}
-            showMaximize={bookKeys.length == 1 && windowButtonVisible}
-            onClose={() => {
-              setHoveredBookKey(null);
-              onCloseBook(bookKey);
-            }}
-          />
-        </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

@@ -19,6 +19,7 @@ import { useDeviceControlStore } from '@/store/deviceStore';
 import { useFoliateEvents } from '../../hooks/useFoliateEvents';
 import { useNotesSync } from '../../hooks/useNotesSync';
 import { useTextSelector } from '../../hooks/useTextSelector';
+import { useDesktopContextMenu } from '../../hooks/useDesktopContextMenu';
 import { Position, TextSelection } from '@/utils/sel';
 import { getPopupPosition, getPosition, getTextFromRange } from '@/utils/sel';
 import { eventDispatcher } from '@/utils/event';
@@ -30,9 +31,16 @@ import { isCfiInLocation } from '@/utils/cfi';
 import { TransformContext } from '@/services/transformers/types';
 import { transformContent } from '@/services/transformService';
 import { getHighlightColorHex } from '../../utils/annotatorUtil';
+import { registerNativeMenuBridge } from '@/services/annotation/nativeMenuBridge';
+import { ANNOTATION_ACTION_EVENT } from '@/services/annotation/menuConfig';
+import type { AnnotationActionEvent } from '@/services/annotation/menuConfig';
 import { annotationToolButtons } from './AnnotationTools';
 import AnnotationRangeEditor from './AnnotationRangeEditor';
 import AnnotationPopup from './AnnotationPopup';
+import {
+  showNativeColorPicker,
+  getViewportCoordsFromRange,
+} from '@/services/annotation/nativeMenuBridge';
 import WiktionaryPopup from './WiktionaryPopup';
 import WikipediaPopup from './WikipediaPopup';
 import TranslatorPopup from './TranslatorPopup';
@@ -54,6 +62,7 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   const { listenToNativeTouchEvents } = useDeviceControlStore();
 
   useNotesSync(bookKey);
+  const { showNativeMenu, isDesktopTauri } = useDesktopContextMenu();
 
   const osPlatform = getOSPlatform();
   const config = getConfig(bookKey)!;
@@ -220,7 +229,13 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     handleShowPopup,
     handleUpToPopup,
     handleContextmenu,
-  } = useTextSelector(bookKey, setSelection, getAnnotationText, handleDismissPopup);
+  } = useTextSelector(
+    bookKey,
+    setSelection,
+    getAnnotationText,
+    handleDismissPopup,
+    isDesktopTauri ? showNativeMenu : undefined,
+  );
 
   const handleDismissPopupAndSelection = () => {
     handleDismissPopup();
@@ -418,6 +433,11 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Register native menu bridge so iOS/Android can call window.__nativeTextSelectionAction()
+  useEffect(() => {
+    registerNativeMenuBridge();
+  }, []);
+
   const handleQuickAction = () => {
     const action = viewSettings.annotationQuickAction;
     if (appService?.isAndroidApp && !androidTouchEndRef.current) return;
@@ -496,7 +516,13 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
 
       const { enableAnnotationQuickActions, annotationQuickAction } = viewSettings;
       if (enableAnnotationQuickActions && annotationQuickAction && isTextSelected.current) {
-        handleQuickAction();
+        // On mobile, always show the popup menu — users expect a choice
+        // before an action is applied (Apple HIG: action sheets for choices).
+        if (appService?.isMobile) {
+          handleShowAnnotPopup();
+        } else {
+          handleQuickAction();
+        }
       } else {
         handleShowAnnotPopup();
       }
@@ -548,9 +574,19 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   }, [selection?.cfi, showAnnotationNotes, config.booknotes]);
 
   const handleShowAnnotPopup = () => {
-    if (!appService?.isMobile) {
-      containerRef.current?.focus();
+    // On iOS, show the native UIKit color picker when tapping existing highlights.
+    // Compute viewport-relative coords from the selection range's bounding rect.
+    if (appService?.isIOSApp) {
+      if (selection?.annotated && selection.range) {
+        const { x, y } = getViewportCoordsFromRange(selection.range);
+        showNativeColorPicker(x, y, selectedColor, true);
+      }
+      return;
     }
+    // On other mobile platforms, let native menu handle new selections only.
+    if (appService?.isMobile && !selection?.annotated) return;
+
+    containerRef.current?.focus();
     setShowAnnotPopup(true);
     setShowDeepLPopup(false);
     setShowWiktionaryPopup(false);
@@ -607,14 +643,18 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     }
   };
 
-  const handleHighlight = (update = false, highlightStyle?: HighlightStyle) => {
+  const handleHighlight = (
+    update = false,
+    highlightStyle?: HighlightStyle,
+    highlightColor?: HighlightColor,
+  ) => {
     if (!selection || !selection.text) return;
     setHighlightOptionsVisible(true);
     const { booknotes: annotations = [] } = config;
     const cfi = view?.getCFI(selection.index, selection.range);
     if (!cfi) return;
     const style = highlightStyle || settings.globalReadSettings.highlightStyle;
-    const color = settings.globalReadSettings.highlightStyles[style];
+    const color = highlightColor || settings.globalReadSettings.highlightStyles[style];
     const annotation: BookNote = {
       id: uniqueId(),
       type: 'annotation',
@@ -691,6 +731,60 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     setShowAnnotPopup(false);
     setShowWikipediaPopup(true);
   };
+
+  // Ref holds the latest handlers so the event listener never goes stale.
+  const annotationHandlersRef = useRef({
+    handleHighlight,
+    handleAnnotate,
+    handleSearch,
+    handleWikipedia,
+  });
+  annotationHandlersRef.current = {
+    handleHighlight,
+    handleAnnotate,
+    handleSearch,
+    handleWikipedia,
+  };
+
+  // Listen for annotation actions from native menus (iOS/Android) and
+  // platform context menus (desktop Tauri).
+  useEffect(() => {
+    const handleAnnotationAction = (event: CustomEvent) => {
+      const { action, color, style } = event.detail as AnnotationActionEvent;
+      const h = annotationHandlersRef.current;
+      switch (action) {
+        case 'highlight':
+          h.handleHighlight(true, style, color);
+          // On iOS, show the native UIKit color picker after highlighting.
+          // Use selection range to get viewport-relative coords.
+          if (appService?.isIOSApp && selection) {
+            setTimeout(() => {
+              const { x, y } = getViewportCoordsFromRange(selection.range);
+              showNativeColorPicker(x, y, color || selectedColor, false);
+            }, 100);
+          }
+          break;
+        case 'annotate':
+          h.handleAnnotate();
+          break;
+        case 'search':
+          h.handleSearch();
+          break;
+        case 'wikipedia':
+          h.handleWikipedia();
+          break;
+        case 'remove-highlight':
+          h.handleHighlight(false);
+          break;
+      }
+    };
+
+    eventDispatcher.on(ANNOTATION_ACTION_EVENT, handleAnnotationAction);
+    return () => {
+      eventDispatcher.off(ANNOTATION_ACTION_EVENT, handleAnnotationAction);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleTranslation = () => {
     if (!selection || !selection.text) return;

@@ -707,7 +707,9 @@ export abstract class BaseAppService implements AppService {
 
   async generateCoverImageUrl(book: Book): Promise<string | null> {
     if (!(await this.fs.exists(getCoverFilename(book), 'Books'))) return null;
-    return this.appPlatform === 'web'
+    // Web and mobile use blob: URLs (WKWebView on iOS blocks tauri:// in <img src>).
+    // Desktop uses convertFileSrc → tauri:// protocol which works on macOS/Windows/Linux.
+    return this.appPlatform === 'web' || this.isMobile
       ? await this.getCoverImageBlobUrl(book)
       : this.getCoverImageUrl(book);
   }

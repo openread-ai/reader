@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import React from 'react';
 
 import { FiSearch } from 'react-icons/fi';
+import { PlusIcon } from 'lucide-react';
 import { LuMessageSquare, LuNotebookPen } from 'react-icons/lu';
 import { MdArrowBackIosNew, MdOutlinePushPin, MdPushPin } from 'react-icons/md';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -15,6 +16,7 @@ const NotebookHeader: React.FC<{
   handleToggleSearchBar: () => void;
   showSearchButton?: boolean;
   activeTab?: 'notes' | 'ai';
+  onNewChat?: () => void;
 }> = ({
   isPinned,
   isSearchBarVisible,
@@ -23,6 +25,7 @@ const NotebookHeader: React.FC<{
   handleToggleSearchBar,
   showSearchButton = true,
   activeTab = 'notes',
+  onNewChat,
 }) => {
   const _ = useTranslation();
   const iconSize14 = useResponsiveSize(14);
@@ -58,8 +61,8 @@ const NotebookHeader: React.FC<{
           <MdArrowBackIosNew />
         </button>
       </div>
-      {showSearchButton && (
-        <div className='flex items-center justify-end gap-x-4'>
+      <div className='flex items-center justify-end gap-x-4'>
+        {showSearchButton && (
           <button
             title={isSearchBarVisible ? _('Hide Search Bar') : _('Show Search Bar')}
             onClick={handleToggleSearchBar}
@@ -70,8 +73,17 @@ const NotebookHeader: React.FC<{
           >
             <FiSearch size={iconSize18} />
           </button>
-        </div>
-      )}
+        )}
+        {activeTab === 'ai' && onNewChat && (
+          <button
+            title={_('New Chat')}
+            onClick={onNewChat}
+            className='btn btn-ghost h-8 min-h-8 w-8 p-0'
+          >
+            <PlusIcon size={iconSize18} />
+          </button>
+        )}
+      </div>
     </div>
   );
 };

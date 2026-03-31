@@ -107,18 +107,22 @@ export const useBookDataStore = create<BookDataState>((set, get) => ({
     const appService = await envConfig.getAppService();
     const { library, setLibrary } = useLibraryStore.getState();
     const bookIndex = library.findIndex((b) => b.hash === bookKey.split('-')[0]);
-    if (bookIndex == -1) return;
+    if (bookIndex === -1) return;
     const book = {
       ...library[bookIndex]!,
       progress: config.progress,
       updatedAt: Date.now(),
       downloadedAt: library[bookIndex]!.downloadedAt || Date.now(),
     };
-    const newLibrary = [book, ...library.filter((_, i) => i !== bookIndex)];
+    // Update book in-place without reordering the library array.
+    // Reordering triggers a full library re-render which on iOS causes
+    // the WKWebView reader to flash/reload due to cascading state updates.
+    const newLibrary = [...library];
+    newLibrary[bookIndex] = book;
     setLibrary(newLibrary);
     config.updatedAt = Date.now();
     await appService.saveBookConfig(book, config, settings);
-    await appService.saveLibraryBooks(library);
+    await appService.saveLibraryBooks(newLibrary);
   },
   updateBooknotes: (key: string, booknotes: BookNote[]) => {
     let updatedConfig: BookConfig | undefined;
@@ -129,9 +133,10 @@ export const useBookDataStore = create<BookDataState>((set, get) => ({
       const dedupedBooknotes = Array.from(
         new Map(booknotes.map((item) => [`${item.id}-${item.type}-${item.cfi}`, item])).values(),
       );
+      const now = Date.now();
       updatedConfig = {
         ...book.config,
-        updatedAt: Date.now(),
+        updatedAt: now,
         booknotes: dedupedBooknotes,
       };
       return {
@@ -141,7 +146,7 @@ export const useBookDataStore = create<BookDataState>((set, get) => ({
             ...book,
             config: {
               ...book.config,
-              updatedAt: Date.now(),
+              updatedAt: now,
               booknotes: dedupedBooknotes,
             },
           },

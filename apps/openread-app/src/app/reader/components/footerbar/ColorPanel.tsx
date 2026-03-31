@@ -79,7 +79,10 @@ export const ColorPanel: React.FC<ColorPanelProps> = ({ actionTab, bottomOffset 
   );
 
   return (
-    <div className={classes} style={{ bottom: bottomOffset }}>
+    <div
+      className={classes}
+      style={{ bottom: bottomOffset, maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}
+    >
       {appService?.hasScreenBrightness && (
         <Slider
           label={_('Screen Brightness')}

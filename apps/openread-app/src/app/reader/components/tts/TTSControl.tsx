@@ -716,7 +716,7 @@ const TTSControl: React.FC<TTSControlProps> = ({ bookKey, gridInsets }) => {
   return (
     <>
       {showPanel && <Overlay onDismiss={handleDismissPopup} />}
-      {(showPanel || (showIndicator && showIndicatorWithinTimeout)) && (
+      {(showPanel || (showIndicator && showIndicatorWithinTimeout && !appService?.isMobile)) && (
         <div
           ref={iconRef}
           className={clsx(
@@ -761,7 +761,7 @@ const TTSControl: React.FC<TTSControlProps> = ({ bookKey, gridInsets }) => {
           />
         </Popup>
       )}
-      {showIndicator && showTTSBar && ttsClientsInited && (
+      {showIndicator && (appService?.isMobile || showTTSBar) && ttsClientsInited && (
         <TTSBar
           bookKey={bookKey}
           isPlaying={isPlaying}

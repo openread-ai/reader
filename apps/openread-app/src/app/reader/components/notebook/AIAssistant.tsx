@@ -115,13 +115,8 @@ const AIAssistantChat = ({
   bookDoc: import('@/libs/document').BookDoc | null;
 }) => {
   const { getChapters } = useBookChapters(bookDoc);
-  const {
-    activeConversationId,
-    messages: storedMessages,
-    addMessage,
-    renameConversation,
-    isLoadingHistory,
-  } = useAIChatStore();
+  const { activeConversationId, addMessage, renameConversation, isLoadingHistory } =
+    useAIChatStore();
 
   // Extract book metadata subjects
   const bookSubjects = useMemo(() => {
@@ -174,9 +169,11 @@ const AIAssistantChat = ({
 
     return {
       async load() {
-        // storedMessages are already loaded by aiChatStore when conversation is selected
+        // Read from store directly (not closure) to avoid stale data when
+        // the runtime calls load() after the adapter reference has changed.
+        const { messages } = useAIChatStore.getState();
         return {
-          messages: convertToExportedMessages(storedMessages),
+          messages: convertToExportedMessages(messages),
         };
       },
       async append(item) {
@@ -204,14 +201,14 @@ const AIAssistantChat = ({
             });
 
             // Rename conversation to first user message
-            if (msg.role === 'user' && storedMessages.length === 0) {
+            if (msg.role === 'user' && useAIChatStore.getState().messages.length === 0) {
               await renameConversation(activeConversationId, textContent.slice(0, 50));
             }
           }
         }
       },
     };
-  }, [activeConversationId, storedMessages, addMessage, renameConversation]);
+  }, [activeConversationId, addMessage, renameConversation]);
 
   // BYOK: determine if user has a BYOK provider selected
   const byokProvider = aiSettings.byokProvider;

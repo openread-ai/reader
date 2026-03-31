@@ -12,7 +12,7 @@ const logger = createLogger('fetch');
  * Desktop Tauri (macOS/Windows/Linux) works fine with browser fetch.
  */
 let _tauriFetch: typeof globalThis.fetch | null = null;
-async function getPlatformFetch(): Promise<typeof globalThis.fetch> {
+export async function getPlatformFetch(): Promise<typeof globalThis.fetch> {
   if (isTauriAppPlatform() && isMobilePlatform()) {
     if (!_tauriFetch) {
       const { fetch: tf } = await import('@tauri-apps/plugin-http');

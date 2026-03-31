@@ -1,18 +1,23 @@
 import clsx from 'clsx';
-import React, { useEffect } from 'react';
-import { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { BiMoon, BiSun } from 'react-icons/bi';
-import { TbSunMoon } from 'react-icons/tb';
-import { MdZoomOut, MdZoomIn, MdCheck } from 'react-icons/md';
-import { MdSync, MdSyncProblem } from 'react-icons/md';
+import { TbSunMoon, TbArrowAutofitWidth, TbColumns1, TbColumns2 } from 'react-icons/tb';
+import {
+  MdZoomOut,
+  MdZoomIn,
+  MdCheck,
+  MdOutlineHeadphones,
+  MdSync,
+  MdSyncProblem,
+} from 'react-icons/md';
+import { PiChatCircleBold, PiTranslateBold, PiInfoBold } from 'react-icons/pi';
 import { IoMdExpand } from 'react-icons/io';
-import { TbArrowAutofitWidth } from 'react-icons/tb';
-import { TbColumns1, TbColumns2 } from 'react-icons/tb';
 
 import { MAX_ZOOM_LEVEL, MIN_ZOOM_LEVEL, ZOOM_STEP } from '@/services/constants';
 import { useEnv } from '@/context/EnvContext';
 import { useAuth } from '@/context/AuthContext';
+import { useNotebookStore } from '@/store/notebookStore';
 import { useThemeStore } from '@/store/themeStore';
 import { useReaderStore } from '@/store/readerStore';
 import { useBookDataStore } from '@/store/bookDataStore';
@@ -75,8 +80,8 @@ const ViewMenu: React.FC<ViewMenuProps> = ({ bookKey, setIsDropdownOpen }) => {
   };
 
   const cycleThemeMode = () => {
-    const nextMode = themeMode === 'auto' ? 'light' : themeMode === 'light' ? 'dark' : 'auto';
-    setThemeMode(nextMode);
+    const modeOrder = { auto: 'light', light: 'dark', dark: 'auto' } as const;
+    setThemeMode(modeOrder[themeMode]);
   };
 
   const handleFullScreen = () => {
@@ -260,7 +265,9 @@ const ViewMenu: React.FC<ViewMenuProps> = ({ bookKey, setIsDropdownOpen }) => {
         </>
       )}
 
-      <MenuItem label={_('Font & Layout')} shortcut='Shift+F' onClick={openFontLayoutMenu} />
+      {!appService?.isMobile && (
+        <MenuItem label={_('Font & Layout')} shortcut='Shift+F' onClick={openFontLayoutMenu} />
+      )}
 
       <MenuItem
         label={_('Scrolled Mode')}
@@ -289,6 +296,62 @@ const ViewMenu: React.FC<ViewMenuProps> = ({ bookKey, setIsDropdownOpen }) => {
         disabled={bookData.isFixedLayout}
       />
 
+      {appService?.isIOSApp && (
+        <>
+          <MenuItem
+            label={_('Read Aloud')}
+            Icon={MdOutlineHeadphones}
+            onClick={() => {
+              eventDispatcher.dispatch(viewState?.ttsEnabled ? 'tts-stop' : 'tts-speak', {
+                bookKey,
+              });
+              setIsDropdownOpen?.(false);
+            }}
+          />
+          <MenuItem
+            label={_('Translation')}
+            Icon={PiTranslateBold}
+            onClick={() => {
+              const newVal = !viewSettings.translationEnabled;
+              saveViewSettings(envConfig, bookKey, 'translationEnabled', newVal, false, true);
+              setIsDropdownOpen?.(false);
+            }}
+          />
+        </>
+      )}
+
+      <hr aria-hidden='true' className='border-base-300 my-1' />
+
+      {appService?.isIOSApp && (
+        <>
+          <MenuItem
+            label={_('AI Chat')}
+            Icon={PiChatCircleBold}
+            onClick={() => {
+              const { isNotebookVisible, setNotebookVisible, setNotebookActiveTab } =
+                useNotebookStore.getState();
+              const notebookOnAI = useNotebookStore.getState().notebookActiveTab === 'ai';
+              if (isNotebookVisible && notebookOnAI) {
+                setNotebookVisible(false);
+              } else {
+                setNotebookVisible(true);
+                setNotebookActiveTab('ai');
+              }
+              setIsDropdownOpen?.(false);
+            }}
+          />
+          <hr aria-hidden='true' className='border-base-300 my-1' />
+          <MenuItem
+            label={_('Book Info')}
+            Icon={PiInfoBold}
+            onClick={() => {
+              eventDispatcher.dispatch('show-book-details', { bookKey });
+              setIsDropdownOpen?.(false);
+            }}
+          />
+        </>
+      )}
+
       <hr aria-hidden='true' className='border-base-300 my-1' />
 
       <MenuItem
@@ -310,14 +373,8 @@ const ViewMenu: React.FC<ViewMenuProps> = ({ bookKey, setIsDropdownOpen }) => {
 
       {appService?.hasWindow && <MenuItem label={_('Fullscreen')} onClick={handleFullScreen} />}
       <MenuItem
-        label={
-          themeMode === 'dark'
-            ? _('Dark Mode')
-            : themeMode === 'light'
-              ? _('Light Mode')
-              : _('Auto Mode')
-        }
-        Icon={themeMode === 'dark' ? BiMoon : themeMode === 'light' ? BiSun : TbSunMoon}
+        label={{ dark: _('Dark Mode'), light: _('Light Mode'), auto: _('Auto Mode') }[themeMode]}
+        Icon={{ dark: BiMoon, light: BiSun, auto: TbSunMoon }[themeMode]}
         onClick={cycleThemeMode}
       />
       <MenuItem

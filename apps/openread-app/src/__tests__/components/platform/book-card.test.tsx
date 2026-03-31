@@ -305,7 +305,7 @@ describe('BookCard', () => {
     it('should have hover scale transition class', () => {
       const book = createMockBook();
       render(<BookCard book={book} />);
-      const container = document.querySelector('.hover\\:scale-105');
+      const container = document.querySelector('.md\\:hover\\:scale-105');
       expect(container).toBeTruthy();
     });
 

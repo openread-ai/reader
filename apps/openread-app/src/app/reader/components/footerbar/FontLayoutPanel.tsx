@@ -98,7 +98,10 @@ export const FontLayoutPanel: React.FC<FontLayoutPanelProps> = ({
   );
 
   return (
-    <div className={classes} style={{ bottom: bottomOffset }}>
+    <div
+      className={classes}
+      style={{ bottom: bottomOffset, maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}
+    >
       <Slider
         label={_('Font Size')}
         initialValue={viewSettings?.defaultFontSize ?? FONT_SIZE_LIMITS.DEFAULT}

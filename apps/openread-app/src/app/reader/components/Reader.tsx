@@ -56,16 +56,24 @@ const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
   const { appService } = useEnv();
   const { settings } = useSettingsStore();
   const { libraryLoaded } = useLibrary();
-  const { sideBarBookKey } = useSidebarStore();
-  const { hoveredBookKey } = useReaderStore();
-  const { showSystemUI, dismissSystemUI } = useThemeStore();
-  const { getScreenBrightness, setScreenBrightness } = useDeviceControlStore();
-  const { acquireBackKeyInterception, releaseBackKeyInterception } = useDeviceControlStore();
-  const { isSideBarVisible, isSideBarPinned } = useSidebarStore();
-  const { getIsSideBarVisible, setSideBarVisible } = useSidebarStore();
-  const { isNotebookVisible, isNotebookPinned } = useNotebookStore();
-  const { getIsNotebookVisible, setNotebookVisible } = useNotebookStore();
-  const { isDarkMode, systemUIAlwaysHidden, isRoundedWindow } = useThemeStore();
+  // Selectors: only re-render when these specific values change
+  const hoveredBookKey = useReaderStore((s) => s.hoveredBookKey);
+  const sideBarBookKey = useSidebarStore((s) => s.sideBarBookKey);
+  const isSideBarPinned = useSidebarStore((s) => s.isSideBarPinned);
+  const isSideBarVisible = useSidebarStore((s) => s.isSideBarVisible);
+  const isNotebookPinned = useNotebookStore((s) => s.isNotebookPinned);
+  const isNotebookVisible = useNotebookStore((s) => s.isNotebookVisible);
+  const isDarkMode = useThemeStore((s) => s.isDarkMode);
+  const isRoundedWindow = useThemeStore((s) => s.isRoundedWindow);
+  const systemUIAlwaysHidden = useThemeStore((s) => s.systemUIAlwaysHidden);
+
+  // Actions only used in effects/handlers — access via getState() to avoid subscriptions
+  const { showSystemUI, dismissSystemUI } = useThemeStore.getState();
+  const { getScreenBrightness, setScreenBrightness } = useDeviceControlStore.getState();
+  const { acquireBackKeyInterception, releaseBackKeyInterception } =
+    useDeviceControlStore.getState();
+  const { getIsSideBarVisible, setSideBarVisible } = useSidebarStore.getState();
+  const { getIsNotebookVisible, setNotebookVisible } = useNotebookStore.getState();
 
   useTheme({ systemUIVisible: settings.alwaysShowStatusBar, appThemeColor: 'base-100' });
   useScreenWakeLock(settings.screenWakeLock);
@@ -156,10 +164,14 @@ const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
     isNotebookVisible,
   ]);
 
+  const lastSystemUIVisible = React.useRef<boolean | null>(null);
   useEffect(() => {
     if (!appService?.isMobileApp) return;
     const systemUIVisible = !!hoveredBookKey || settings.alwaysShowStatusBar;
     const visible = !!(systemUIVisible && !systemUIAlwaysHidden);
+    // Skip if visibility hasn't changed — avoids redundant native calls that cause WKWebView flash
+    if (lastSystemUIVisible.current === visible) return;
+    lastSystemUIVisible.current = visible;
     setSystemUIVisibility({ visible, darkMode: isDarkMode });
     if (visible) {
       showSystemUI();

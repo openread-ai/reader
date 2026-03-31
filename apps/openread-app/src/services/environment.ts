@@ -70,23 +70,27 @@ const environmentConfig: EnvConfigType = {
 
 export default environmentConfig;
 
-// Mobile platform detection for Tauri
+/**
+ * Detect whether the app is running on a mobile Tauri platform (iOS/Android).
+ * Uses the same synchronous osType() from @tauri-apps/plugin-os that
+ * nativeAppService.ts uses at module level — no init step required.
+ * On non-Tauri platforms, the import throws and we return false.
+ */
 let _isMobile: boolean | null = null;
 
-export async function initMobilePlatform(): Promise<void> {
+export function isMobilePlatform(): boolean {
+  if (_isMobile !== null) return _isMobile;
   if (!isTauriAppPlatform()) {
     _isMobile = false;
-    return;
+    return false;
   }
   try {
-    const { platform } = await import('@tauri-apps/plugin-os');
-    const os = platform();
-    _isMobile = os === 'android' || os === 'ios';
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { type: osType } = require('@tauri-apps/plugin-os');
+    const os = osType();
+    _isMobile = os === 'ios' || os === 'android';
   } catch {
     _isMobile = false;
   }
-}
-
-export function isMobilePlatform(): boolean {
-  return _isMobile ?? false;
+  return _isMobile;
 }

@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
@@ -9,12 +9,16 @@ import { useBookDataStore } from '@/store/bookDataStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getGridTemplate, getInsetEdges } from '@/utils/grid';
 import { getViewInsets } from '@/utils/insets';
+import { viewPagination } from '../hooks/usePagination';
+import { debounce } from '@/utils/debounce';
+import { computeProgress } from './footerbar/progressUtils';
 import SearchResultsNav from './sidebar/SearchResultsNav';
 import BooknotesNav from './sidebar/BooknotesNav';
 import FoliateViewer from './FoliateViewer';
 import SectionInfo from './SectionInfo';
 import HeaderBar from './HeaderBar';
 import FooterBar from './footerbar/FooterBar';
+import MobileProgressOverlay from './mobile/MobileProgressOverlay';
 import ProgressInfoView from './ProgressInfo';
 import Ribbon from './Ribbon';
 import Annotator from './annotator/Annotator';
@@ -22,6 +26,57 @@ import FootnotePopup from './FootnotePopup';
 import HintInfo from './HintInfo';
 import ReadingRuler from './ReadingRuler';
 import DoubleBorder from './DoubleBorder';
+import { NavigationHandlers } from './footerbar/types';
+import { PageInfo } from '@/types/book';
+
+/** Wrapper that constructs navigation handlers for MobileProgressOverlay. */
+const ProgressOverlayForBook: React.FC<{
+  bookKey: string;
+  isOpen: boolean;
+  onClose: () => void;
+  section?: PageInfo;
+  pageinfo?: PageInfo;
+  bookFormat: string;
+  gridInsets: { top: number; right: number; bottom: number; left: number };
+}> = ({ bookKey, isOpen, onClose, section, pageinfo, bookFormat, gridInsets }) => {
+  const view = useReaderStore((s) => s.viewStates[bookKey]?.view ?? null);
+  const viewSettings = useReaderStore((s) => s.viewStates[bookKey]?.viewSettings ?? null);
+
+  const { progressValid, progressFraction } = useMemo(
+    () => computeProgress(bookFormat, section, pageinfo),
+    [bookFormat, section, pageinfo],
+  );
+
+  const handleProgressChange = useMemo(
+    () => debounce((value: number) => view?.goToFraction(value / 100.0), 100),
+    [view],
+  );
+
+  const navigationHandlers: NavigationHandlers = useMemo(
+    () => ({
+      onPrevPage: () => viewPagination(view, viewSettings, 'left', 'page'),
+      onNextPage: () => viewPagination(view, viewSettings, 'right', 'page'),
+      onPrevSection: () => view?.renderer.prevSection?.(),
+      onNextSection: () => view?.renderer.nextSection?.(),
+      onGoBack: () => view?.history.back(),
+      onGoForward: () => view?.history.forward(),
+      onProgressChange: handleProgressChange,
+    }),
+    [view, viewSettings, handleProgressChange],
+  );
+
+  return (
+    <MobileProgressOverlay
+      bookKey={bookKey}
+      isOpen={isOpen}
+      onClose={onClose}
+      progressFraction={progressFraction}
+      progressValid={progressValid}
+      navigationHandlers={navigationHandlers}
+      gridInsets={gridInsets}
+    />
+  );
+};
 
 interface BooksGridProps {
   bookKeys: string[];
@@ -31,12 +86,16 @@ interface BooksGridProps {
 const BooksGrid: React.FC<BooksGridProps> = ({ bookKeys, onCloseBook }) => {
   const _ = useTranslation();
   const { appService } = useEnv();
+  // These getters are called during render (in .map loop) so they need hook subscriptions
   const { getConfig, getBookData } = useBookDataStore();
   const { getProgress, getViewState, getViewSettings } = useReaderStore();
-  const { setGridInsets, hoveredBookKey } = useReaderStore();
-  const { sideBarBookKey } = useSidebarStore();
+  const setGridInsets = useReaderStore((s) => s.setGridInsets);
+  const hoveredBookKey = useReaderStore((s) => s.hoveredBookKey);
+  const sideBarBookKey = useSidebarStore((s) => s.sideBarBookKey);
+  const [progressOverlayBookKey, setProgressOverlayBookKey] = useState<string | null>(null);
+  const handleCloseProgressOverlay = useCallback(() => setProgressOverlayBookKey(null), []);
 
-  const { safeAreaInsets: screenInsets } = useThemeStore();
+  const screenInsets = useThemeStore((s) => s.safeAreaInsets);
   const aspectRatio = window.innerWidth / window.innerHeight;
   const gridTemplate = getGridTemplate(bookKeys.length, aspectRatio);
 
@@ -123,7 +182,23 @@ const BooksGrid: React.FC<BooksGridProps> = ({ bookKeys, onCloseBook }) => {
               isHoveredAnim={bookKeys.length > 2}
               onCloseBook={onCloseBook}
               gridInsets={gridInsets}
+              onToggleProgress={
+                appService?.isIOSApp
+                  ? () => setProgressOverlayBookKey((prev) => (prev === bookKey ? null : bookKey))
+                  : undefined
+              }
             />
+            {appService?.isIOSApp && (
+              <ProgressOverlayForBook
+                bookKey={bookKey}
+                isOpen={progressOverlayBookKey === bookKey}
+                onClose={handleCloseProgressOverlay}
+                section={section}
+                pageinfo={pageinfo}
+                bookFormat={book.format}
+                gridInsets={gridInsets}
+              />
+            )}
             <FoliateViewer
               key={viewerKey}
               bookKey={bookKey}
@@ -139,7 +214,6 @@ const BooksGrid: React.FC<BooksGridProps> = ({ bookKeys, onCloseBook }) => {
                     className='bg-base-100 absolute left-0 top-0 h-full'
                     style={{
                       width: `calc(${contentInsets.left + (showFooter ? 32 : 0)}px)`,
-                      height: `calc(100%)`,
                     }}
                   />
                 )}
@@ -148,7 +222,6 @@ const BooksGrid: React.FC<BooksGridProps> = ({ bookKeys, onCloseBook }) => {
                     className='bg-base-100 absolute right-0 top-0 h-full'
                     style={{
                       width: `calc(${contentInsets.right + (showHeader ? 32 : 0)}px)`,
-                      height: `calc(100%)`,
                     }}
                   />
                 )}

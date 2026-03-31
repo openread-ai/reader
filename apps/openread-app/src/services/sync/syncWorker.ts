@@ -28,6 +28,7 @@ import type { SystemSettings } from '@/types/settings';
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseClient } from '@/utils/supabase';
 import { getAccessToken } from '@/utils/access';
+import { getPlatformFetch } from '@/utils/fetch';
 import type { AIConversation, AIMessage } from '@/services/ai/types';
 import { aiStore } from '@/services/ai/storage/aiStore';
 import { useAIChatStore } from '@/store/aiChatStore';
@@ -368,7 +369,10 @@ export class SyncWorker {
     if (this.cachedSupabase && this.cachedSupabase.token === token) {
       return this.cachedSupabase.client;
     }
-    const client = createSupabaseClient(token);
+    // Pass platform-aware fetch so Supabase queries work on iOS
+    // (WKWebView blocks cross-origin requests without native HTTP layer).
+    const customFetch = await getPlatformFetch();
+    const client = createSupabaseClient(token, customFetch);
     this.cachedSupabase = { client, token };
     return client;
   }
@@ -722,6 +726,7 @@ export class SyncWorker {
       const library = useLibraryStore.getState().library;
       const bookByHash = new Map(library.map((b) => [b.hash, b]));
 
+      let processedCount = 0;
       for (const [bookHash, bookNotes] of notesByBook) {
         const book = bookByHash.get(bookHash);
         if (!book) continue;
@@ -730,7 +735,6 @@ export class SyncWorker {
         if (!config) continue;
 
         const oldNotes = config.booknotes ?? [];
-        // Build ID→index map for O(1) lookups instead of O(N) findIndex
         const noteIdxMap = new Map(oldNotes.map((n, i) => [n.id, i]));
         const mergedNotes = [...oldNotes];
 
@@ -751,10 +755,13 @@ export class SyncWorker {
         }
 
         bookDataStore.setConfig(bookKey, { booknotes: mergedNotes });
+        processedCount += bookNotes.length;
       }
 
+      // Only advance watermark if notes were actually stored — prevents
+      // silently skipping notes on fresh installs where booksData is empty
       const maxTime = computeMaxTimestamp(dbNotes as unknown as BookDataRecord[]);
-      if (maxTime > 0) {
+      if (maxTime > 0 && processedCount > 0) {
         await saveWatermarks({ lastSyncedAtNotes: maxTime });
       }
     } catch (error) {
@@ -805,7 +812,7 @@ export class SyncWorker {
    * Merges into IndexedDB (LWW by updatedAt), then refreshes Zustand store.
    * Uses coalescing guard to prevent duplicate pulls from rapid broadcasts.
    */
-  private async pullRemoteAIConversations(): Promise<void> {
+  async pullRemoteAIConversations(): Promise<void> {
     if (isOffline() || !this.userId) return;
 
     const bookHash = useAIChatStore.getState().currentBookHash;

@@ -251,7 +251,6 @@ const getLayoutStyles = (
     ${writingMode === 'auto' ? '' : `writing-mode: ${writingMode} !important;`}
     text-align: var(--default-text-align);
     max-height: unset;
-    -webkit-touch-callout: none;
     -webkit-user-select: text;
   }
   body {

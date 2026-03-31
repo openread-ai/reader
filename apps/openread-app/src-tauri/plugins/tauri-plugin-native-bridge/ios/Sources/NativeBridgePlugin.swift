@@ -225,48 +225,56 @@ class WebViewLifecycleManager: NSObject {
 
     logger.log("WebViewLifecycleManager: App entering foreground")
 
-    var timeInBackground: TimeInterval = 0
-    if let backgroundTime = lastBackgroundTime {
-      timeInBackground = Date().timeIntervalSince(backgroundTime)
-      logger.log("WebViewLifecycleManager: Time in background: \(timeInBackground)s")
+    // If lastBackgroundTime is nil, the app never actually went to background —
+    // it only lost focus briefly (e.g. system text selection menu, share sheet).
+    // Skip the health check to avoid racing with evaluateJavaScript calls
+    // from the highlight flow, which can cascade to webView.reload().
+    guard let backgroundTime = lastBackgroundTime else {
+      logger.log("WebViewLifecycleManager: No background time recorded, skipping health check")
+      return
     }
 
-    // If app was backgrounded for more than threshold, check WebView health
+    let timeInBackground = Date().timeIntervalSince(backgroundTime)
+    logger.log("WebViewLifecycleManager: Time in background: \(timeInBackground)s")
+    lastBackgroundTime = nil
+
+    // Only check WebView health after extended background (>= threshold).
+    // Short backgrounds (< threshold) don't need recovery — the web content
+    // process stays alive and healthy. The previous quickHealthCheck approach
+    // caused false-positive reloads by racing with evaluateJavaScript calls.
     if timeInBackground > backgroundTimeThreshold {
       logger.log(
         "WebViewLifecycleManager: App was backgrounded for \(timeInBackground)s, checking WebView health..."
       )
       checkAndRecoverWebView(webView, reason: "long_background")
     } else {
-      // Still do a quick check after a small delay
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-        self?.quickHealthCheck(webView)
-      }
+      logger.log("WebViewLifecycleManager: Short background (\(timeInBackground)s < \(self.backgroundTimeThreshold)s), skipping health check")
     }
-
-    lastBackgroundTime = nil
   }
 
   func handleAppWillResignActive() {
-    logger.log("WebViewLifecycleManager: App will resign active")
+    // No-op. Previously called evaluateJavaScript to save the URL here,
+    // but willResignActive fires for system menus (text selection, share sheet)
+    // and the JS evaluation during text selection disrupts WKWebView state.
+    logger.log("WebViewLifecycleManager: App will resign active (no action)")
+  }
+
+  func handleAppDidEnterBackground() {
+    lastBackgroundTime = Date()
+    // Save URL when actually backgrounding (not on resign-active, which fires for system menus)
     guard let webView = webView else { return }
     webView.evaluateJavaScript("window.location.href") { result, error in
       if let error = error {
         logger.error("WebViewLifecycleManager: Failed to capture URL on background: \(error)")
         return
       }
-
       if let urlString = result as? String {
         if urlString.hasPrefix("http") || urlString.hasPrefix("tauri") {
           UserDefaults.standard.set(urlString, forKey: "tauri_last_valid_url")
-          logger.log("WebViewLifecycleManager: Saved valid URL")
+          logger.log("WebViewLifecycleManager: Saved valid URL on background")
         }
       }
     }
-  }
-
-  func handleAppDidEnterBackground() {
-    lastBackgroundTime = Date()
   }
 
   private func quickHealthCheck(_ webView: WKWebView) {
@@ -417,16 +425,1572 @@ extension WebViewLifecycleManager: WKNavigationDelegate {
   }
 }
 
-class NativeBridgePlugin: Plugin {
+
+// MARK: - Native Color Picker
+// Matches the iOS native edit menu (Copy/Translate/Share) visual style:
+// same corner radius, blur material, shadow, padding, and bar height.
+class NativeColorPicker: UIView {
+  private let colors: [(id: String, color: UIColor)] = [
+    ("yellow", UIColor(red: 240/255, green: 196/255, blue: 58/255, alpha: 1)),
+    ("red", UIColor(red: 239/255, green: 107/255, blue: 107/255, alpha: 1)),
+    ("blue", UIColor(red: 91/255, green: 168/255, blue: 245/255, alpha: 1)),
+    ("green", UIColor(red: 92/255, green: 201/255, blue: 138/255, alpha: 1)),
+    ("violet", UIColor(red: 176/255, green: 140/255, blue: 220/255, alpha: 1)),
+  ]
+
+  // Matched to iOS native edit menu dimensions
+  private let circleSize: CGFloat = 30
+  private let padding: CGFloat = 7
+  private let gap: CGFloat = 8
+  private let cornerRadius: CGFloat = 13
+  private let checkmarkTag = 999
+  private var selectedColor: String = "yellow"
+  private var colorButtons: [UIButton] = []
+  private var deleteButton: UIButton?
+  private var divider: UIView?
+  private weak var webView: WKWebView?
+  private var effectView: UIVisualEffectView!
+  private var scrollObservation: NSKeyValueObservation?
+  private var showContentOffset: CGPoint = .zero
+  private let scrollDismissThreshold: CGFloat = 1
+  private var autoDismissTimer: Timer?
+  private var dismissTapGesture: UITapGestureRecognizer?
+  private var dismissPanGesture: UIPanGestureRecognizer?
+
+  init(webView: WKWebView) {
+    self.webView = webView
+    super.init(frame: .zero)
+    setupView()
+  }
+
+  required init?(coder: NSCoder) { fatalError() }
+
+  deinit {
+    scrollObservation?.invalidate()
+    autoDismissTimer?.invalidate()
+    removeDismissGestures()
+  }
+
+  private func setupView() {
+    isHidden = true
+
+    // Glass (iOS 26+) or chrome blur (iOS 18) for the floating pill
+    let ev = UIVisualEffectView()
+    if #available(iOS 26.0, *) {
+      let glass = UIGlassEffect(style: .regular)
+      glass.isInteractive = true
+      ev.effect = glass
+    } else {
+      ev.effect = UIBlurEffect(style: .systemChromeMaterial)
+    }
+    ev.layer.cornerRadius = cornerRadius
+    ev.clipsToBounds = true
+    ev.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(ev)
+    NSLayoutConstraint.activate([
+      ev.topAnchor.constraint(equalTo: topAnchor),
+      ev.bottomAnchor.constraint(equalTo: bottomAnchor),
+      ev.leadingAnchor.constraint(equalTo: leadingAnchor),
+      ev.trailingAnchor.constraint(equalTo: trailingAnchor),
+    ])
+    effectView = ev
+
+    layer.cornerRadius = cornerRadius
+    // Border + shadow only on pre-iOS 26 — glass provides its own chrome
+    if #unavailable(iOS 26) {
+      layer.borderWidth = 1.0 / UIScreen.main.scale
+      layer.borderColor = UIColor.separator.withAlphaComponent(0.3).cgColor
+      layer.shadowColor = UIColor.black.cgColor
+      layer.shadowOpacity = 0.08
+      layer.shadowRadius = 8
+      layer.shadowOffset = CGSize(width: 0, height: 4)
+    }
+
+    let stack = UIStackView()
+    stack.axis = .horizontal
+    stack.spacing = gap
+    stack.alignment = .center
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    effectView.contentView.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.topAnchor.constraint(equalTo: effectView.contentView.topAnchor, constant: padding),
+      stack.bottomAnchor.constraint(equalTo: effectView.contentView.bottomAnchor, constant: -padding),
+      stack.leadingAnchor.constraint(equalTo: effectView.contentView.leadingAnchor, constant: padding + 3),
+      stack.trailingAnchor.constraint(equalTo: effectView.contentView.trailingAnchor, constant: -(padding + 3)),
+    ])
+
+    for (i, colorInfo) in colors.enumerated() {
+      let btn = UIButton(type: .custom)
+      btn.tag = i
+      btn.backgroundColor = colorInfo.color
+      btn.layer.cornerRadius = circleSize / 2
+      btn.layer.shadowColor = UIColor.black.cgColor
+      btn.layer.shadowOpacity = 0.1
+      btn.layer.shadowRadius = 1
+      btn.layer.shadowOffset = CGSize(width: 0, height: 0.5)
+      btn.translatesAutoresizingMaskIntoConstraints = false
+      NSLayoutConstraint.activate([
+        btn.widthAnchor.constraint(equalToConstant: circleSize),
+        btn.heightAnchor.constraint(equalToConstant: circleSize),
+      ])
+      btn.addTarget(self, action: #selector(colorTapped(_:)), for: .touchUpInside)
+      stack.addArrangedSubview(btn)
+      colorButtons.append(btn)
+    }
+
+    let div = UIView()
+    div.backgroundColor = UIColor.separator
+    div.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      div.widthAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale),
+      div.heightAnchor.constraint(equalToConstant: circleSize - 6),
+    ])
+    stack.addArrangedSubview(div)
+    stack.setCustomSpacing(gap, after: colorButtons.last!)
+    stack.setCustomSpacing(gap, after: div)
+    self.divider = div
+    div.isHidden = true
+
+    // Delete button
+    let del = UIButton(type: .custom)
+    del.backgroundColor = UIColor.systemRed.withAlphaComponent(0.1)
+    del.layer.cornerRadius = circleSize / 2
+    del.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      del.widthAnchor.constraint(equalToConstant: circleSize),
+      del.heightAnchor.constraint(equalToConstant: circleSize),
+    ])
+    let trashImage = UIImage(systemName: "trash")?.withConfiguration(
+      UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+    )
+    del.setImage(trashImage, for: .normal)
+    del.tintColor = .systemRed
+    del.addTarget(self, action: #selector(deleteTapped), for: .touchUpInside)
+    stack.addArrangedSubview(del)
+    self.deleteButton = del
+    del.isHidden = true
+
+  }
+
+  func show(at point: CGPoint, selected: String, withDelete: Bool) {
+    selectedColor = selected
+    divider?.isHidden = !withDelete
+    deleteButton?.isHidden = !withDelete
+    updateSelection()
+
+    // Calculate size — extra horizontal padding (padding + 3 each side)
+    let hPadding = (padding + 3) * 2
+    let colorsWidth = CGFloat(colors.count) * circleSize + CGFloat(colors.count - 1) * gap
+    let dividerWidth = withDelete ? (gap + 1.0 / UIScreen.main.scale + gap + circleSize) : 0
+    let totalWidth = hPadding + colorsWidth + dividerWidth
+    let totalHeight = padding * 2 + circleSize
+
+    // Convert JS viewport coords to screen coords via WKWebView
+    // JS getBoundingClientRect() returns coords relative to the visible viewport.
+    // WKWebView.convert() translates to the picker's superview (key window).
+    let webViewPoint = CGPoint(x: point.x, y: point.y)
+    let screenPoint: CGPoint
+    if let wv = webView, let window = self.superview {
+      screenPoint = wv.convert(webViewPoint, to: window)
+    } else {
+      screenPoint = webViewPoint
+    }
+
+    let screenWidth = UIScreen.main.bounds.width
+    let safeTop = webView?.safeAreaInsets.top ?? 0
+
+    // Center horizontally on x, position above the selection point
+    let x = max(10, min(screenPoint.x - totalWidth / 2, screenWidth - totalWidth - 10))
+    // Place above the tap point
+    let y = max(safeTop + 10, screenPoint.y - totalHeight - 12)
+
+    frame = CGRect(x: x, y: y, width: totalWidth, height: totalHeight)
+    isHidden = false
+    transform = CGAffineTransform(scaleX: 0.85, y: 0.85)
+    if #available(iOS 26.0, *) {
+      // Glass materialize animation
+      effectView.effect = nil
+      alpha = 1
+      UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.75, initialSpringVelocity: 0.5) {
+        let glass = UIGlassEffect(style: .regular)
+        glass.isInteractive = true
+        self.effectView.effect = glass
+        self.transform = .identity
+      }
+    } else {
+      alpha = 0
+      UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.75, initialSpringVelocity: 0.5) {
+        self.alpha = 1
+        self.transform = .identity
+      }
+    }
+
+    // Observe scroll to auto-dismiss after threshold
+    startScrollObservation()
+
+    // Transparent overlay catches any tap outside the picker
+    installDismissGestures()
+
+    // Auto-dismiss after 3.5 seconds as safety net
+    autoDismissTimer?.invalidate()
+    autoDismissTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: false) { [weak self] _ in
+      self?.hide()
+    }
+  }
+
+  func hide() {
+    guard !isHidden else { return }
+    autoDismissTimer?.invalidate()
+    autoDismissTimer = nil
+    scrollObservation?.invalidate()
+    scrollObservation = nil
+    removeDismissGestures()
+    cleanupJSScrollListeners()
+    if #available(iOS 26.0, *) {
+      // Glass dematerialize
+      UIView.animate(withDuration: 0.15, animations: {
+        self.effectView.effect = nil
+      }) { _ in
+        self.isHidden = true
+      }
+    } else {
+      alpha = 0
+      isHidden = true
+    }
+    transform = .identity
+  }
+
+  private func installDismissGestures() {
+    removeDismissGestures()
+    guard let wv = webView else { return }
+    // Tap on book content → dismiss. cancelsTouchesInView=false so normal taps still work
+    let tap = UITapGestureRecognizer(target: self, action: #selector(backgroundTapped))
+    tap.cancelsTouchesInView = false
+    tap.delegate = self
+    wv.addGestureRecognizer(tap)
+    dismissTapGesture = tap
+    // Pan on book content → dismiss on first movement, don't block scrolling
+    let pan = UIPanGestureRecognizer(target: self, action: #selector(dismissPanned(_:)))
+    pan.cancelsTouchesInView = false
+    pan.delegate = self
+    wv.addGestureRecognizer(pan)
+    dismissPanGesture = pan
+  }
+
+  @objc private func dismissPanned(_ gesture: UIPanGestureRecognizer) {
+    if gesture.state == .began {
+      hide()
+    }
+  }
+
+  private func removeDismissGestures() {
+    if let g = dismissTapGesture { g.view?.removeGestureRecognizer(g); dismissTapGesture = nil }
+    if let g = dismissPanGesture { g.view?.removeGestureRecognizer(g); dismissPanGesture = nil }
+  }
+
+  private func startScrollObservation() {
+    // WKWebView scrollView observation (for top-level scrolls)
+    scrollObservation?.invalidate()
+    if let scrollView = webView?.scrollView {
+      showContentOffset = scrollView.contentOffset
+      scrollObservation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] _, change in
+        guard let self = self, !self.isHidden, let newOffset = change.newValue else { return }
+        let dx = abs(newOffset.x - self.showContentOffset.x)
+        let dy = abs(newOffset.y - self.showContentOffset.y)
+        if dx > self.scrollDismissThreshold || dy > self.scrollDismissThreshold {
+          self.hide()
+        }
+      }
+    }
+
+    // Inject JS touchmove listener into iframes — fires instantly on finger drag
+    // touchmove fires on the first pixel of movement, unlike scroll which waits
+    let js = """
+    (function() {
+      if (window.__openreadPickerScrollCleanup) window.__openreadPickerScrollCleanup();
+      var cleanups = [];
+      var fired = false;
+      function onTouch() {
+        if (fired) return;
+        fired = true;
+        window.webkit.messageHandlers.openreadColorPickerHide.postMessage({});
+      }
+      document.querySelectorAll('iframe').forEach(function(f) {
+        try {
+          var doc = f.contentDocument || f.contentWindow.document;
+          doc.addEventListener('touchmove', onTouch, {once: true, passive: true});
+          doc.addEventListener('scroll', onTouch, {once: true, passive: true});
+          cleanups.push(function() {
+            doc.removeEventListener('touchmove', onTouch);
+            doc.removeEventListener('scroll', onTouch);
+          });
+        } catch(e) {}
+      });
+      document.addEventListener('touchmove', onTouch, {once: true, passive: true});
+      document.addEventListener('scroll', onTouch, {once: true, passive: true});
+      cleanups.push(function() {
+        document.removeEventListener('touchmove', onTouch);
+        document.removeEventListener('scroll', onTouch);
+      });
+      window.__openreadPickerScrollCleanup = function() {
+        cleanups.forEach(function(c) { c(); });
+        cleanups = [];
+        window.__openreadPickerScrollCleanup = null;
+      };
+    })();
+    """
+    webView?.evaluateJavaScript(js) { _, _ in }
+  }
+
+  private func cleanupJSScrollListeners() {
+    webView?.evaluateJavaScript("if(window.__openreadPickerScrollCleanup) window.__openreadPickerScrollCleanup();") { _, _ in }
+  }
+
+  private func updateSelection() {
+    for (i, btn) in colorButtons.enumerated() {
+      btn.subviews.filter { $0.tag == checkmarkTag }.forEach { $0.removeFromSuperview() }
+      if colors[i].id == selectedColor {
+        // Add ring
+        btn.layer.borderWidth = 2
+        btn.layer.borderColor = UIColor.white.cgColor
+        // Add checkmark — scaled for 30pt circle
+        let check = UIImageView(image: UIImage(systemName: "checkmark")?.withConfiguration(
+          UIImage.SymbolConfiguration(pointSize: 12, weight: .bold)
+        ))
+        check.tintColor = .white
+        check.tag = checkmarkTag
+        check.translatesAutoresizingMaskIntoConstraints = false
+        btn.addSubview(check)
+        NSLayoutConstraint.activate([
+          check.centerXAnchor.constraint(equalTo: btn.centerXAnchor),
+          check.centerYAnchor.constraint(equalTo: btn.centerYAnchor),
+        ])
+        check.layer.shadowColor = UIColor.black.cgColor
+        check.layer.shadowOpacity = 0.3
+        check.layer.shadowRadius = 1
+        check.layer.shadowOffset = CGSize(width: 0, height: 1)
+      } else {
+        btn.layer.borderWidth = 0
+      }
+    }
+  }
+
+  @objc private func colorTapped(_ sender: UIButton) {
+    let colorId = colors[sender.tag].id
+    selectedColor = colorId
+    updateSelection()
+    webView?.evaluateJavaScript(
+      "window.__nativeTextSelectionAction('highlight', '\(colorId)', 'highlight')"
+    ) { _, _ in }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.hide() }
+  }
+
+  @objc private func deleteTapped() {
+    webView?.evaluateJavaScript(
+      "window.__nativeTextSelectionAction('remove-highlight')"
+    ) { _, _ in }
+    hide()
+  }
+
+  @objc private func backgroundTapped() {
+    hide()
+  }
+}
+
+extension NativeColorPicker: UIGestureRecognizerDelegate {
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+    // Only fire for touches outside the picker (don't eat color button taps)
+    let location = touch.location(in: self)
+    return !bounds.contains(location)
+  }
+
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+    // Allow our gestures to work alongside WKWebView's own scroll/pan gestures
+    return true
+  }
+}
+
+// MARK: - Native Collection Picker (UIViewController with table view)
+
+class NativeCollectionPicker: UIViewController, UITableViewDataSource, UITableViewDelegate {
+  struct CollectionItem {
+    let id: String
+    let name: String
+    var selected: Bool
+  }
+
+  private weak var webView: WKWebView?
+  private var collections: [CollectionItem] = []
+  private var bookHashes: [String] = []
+  private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+  private var newCollectionName: String?
+
+  init(webView: WKWebView, collections: [[String: Any]], bookHashes: [String]) {
+    self.webView = webView
+    self.bookHashes = bookHashes
+    super.init(nibName: nil, bundle: nil)
+
+    self.collections = collections.map { dict in
+      CollectionItem(
+        id: dict["id"] as? String ?? "",
+        name: dict["name"] as? String ?? "",
+        selected: dict["hasBook"] as? Bool ?? false
+      )
+    }
+  }
+
+  required init?(coder: NSCoder) { fatalError() }
+
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    title = "Add to Collection"
+    view.backgroundColor = .systemGroupedBackground
+
+    navigationItem.leftBarButtonItem = UIBarButtonItem(
+      barButtonSystemItem: .cancel, target: self, action: #selector(cancelTapped)
+    )
+    navigationItem.rightBarButtonItem = UIBarButtonItem(
+      barButtonSystemItem: .done, target: self, action: #selector(doneTapped)
+    )
+
+    tableView.dataSource = self
+    tableView.delegate = self
+    tableView.translatesAutoresizingMaskIntoConstraints = false
+    tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
+    view.addSubview(tableView)
+    NSLayoutConstraint.activate([
+      tableView.topAnchor.constraint(equalTo: view.topAnchor),
+      tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+    ])
+  }
+
+  // MARK: - UITableViewDataSource
+
+  func numberOfSections(in tableView: UITableView) -> Int { 2 }
+
+  func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    section == 0 ? collections.count : 1
+  }
+
+  func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+    section == 0 ? (collections.isEmpty ? nil : "Collections") : nil
+  }
+
+  func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+    let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
+    cell.selectionStyle = .none
+
+    if indexPath.section == 0 {
+      let item = collections[indexPath.row]
+      var content = cell.defaultContentConfiguration()
+      content.text = item.name
+      content.textProperties.font = .systemFont(ofSize: 16)
+      cell.contentConfiguration = content
+      cell.accessoryType = item.selected ? .checkmark : .none
+      cell.tintColor = .systemBlue
+    } else {
+      var content = cell.defaultContentConfiguration()
+      content.text = "New Collection..."
+      content.textProperties.color = .systemBlue
+      content.image = UIImage(systemName: "plus.circle.fill")
+      content.imageProperties.tintColor = .systemBlue
+      cell.contentConfiguration = content
+      cell.accessoryType = .none
+    }
+    return cell
+  }
+
+  // MARK: - UITableViewDelegate
+
+  func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+    if indexPath.section == 0 {
+      collections[indexPath.row].selected.toggle()
+      tableView.reloadRows(at: [indexPath], with: .automatic)
+    } else {
+      showNewCollectionAlert()
+    }
+  }
+
+  // MARK: - Actions
+
+  private func showNewCollectionAlert() {
+    let alert = UIAlertController(title: "New Collection", message: nil, preferredStyle: .alert)
+    alert.addTextField { tf in
+      tf.placeholder = "Collection name"
+      tf.autocapitalizationType = .words
+    }
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    alert.addAction(UIAlertAction(title: "Create", style: .default) { [weak self] _ in
+      guard let name = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !name.isEmpty else { return }
+      // Add to local list as selected
+      self?.collections.append(CollectionItem(id: "__new__\(name)", name: name, selected: true))
+      self?.tableView.reloadData()
+    })
+    present(alert, animated: true)
+  }
+
+  @objc private func cancelTapped() {
+    dismiss(animated: true)
+  }
+
+  @objc private func doneTapped() {
+    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
+    // Build result: added collections, removed collections, new collections
+    var added: [String] = []
+    var removed: [String] = []
+    var created: [String] = []
+
+    for item in collections {
+      if item.id.hasPrefix("__new__") {
+        if item.selected {
+          created.append(item.name)
+        }
+      } else {
+        // Compare with original state
+        let wasSelected = !(item.selected) // toggled means changed
+        // Actually we need to track original state. Let me simplify:
+        // Just send current state — web side will diff
+        if item.selected {
+          added.append(item.id)
+        }
+      }
+    }
+
+    // Send all selected IDs + new names to JS
+    let addedJSON = added.map { "\"\($0)\"" }.joined(separator: ",")
+    let createdJSON = created.map { "\($0.replacingOccurrences(of: "'", with: "\\'"))" }.joined(separator: "','")
+    let hashesJSON = bookHashes.map { "\"\($0)\"" }.joined(separator: ",")
+
+    let js = """
+    window.__nativeCollectionResult?.({
+      selectedIds: [\(addedJSON)],
+      newNames: ['\(createdJSON)'],
+      bookHashes: [\(hashesJSON)]
+    })
+    """
+    webView?.evaluateJavaScript(js) { _, _ in }
+    dismiss(animated: true)
+  }
+}
+
+// MARK: - Native Selection Toolbar (Glass action bar for multi-select)
+
+class NativeSelectionToolbar: UIView {
+  private weak var webView: WKWebView?
+  private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
+  private var countLabel: UILabel!
+
+  init(webView: WKWebView) {
+    self.webView = webView
+    super.init(frame: .zero)
+    feedbackGenerator.prepare()
+    setupView()
+  }
+
+  required init?(coder: NSCoder) { fatalError() }
+
+  func updateCount(_ selected: Int, _ total: Int) {
+    countLabel.text = "\(selected) of \(total)"
+  }
+
+  private func setupView() {
+    // Attached count pill — sits above the main toolbar bar
+    let countPill = UIVisualEffectView()
+    if #available(iOS 26.0, *) {
+      countPill.effect = UIGlassEffect(style: .regular)
+    } else {
+      countPill.effect = UIBlurEffect(style: .systemChromeMaterial)
+    }
+    countPill.layer.cornerRadius = 14
+    countPill.clipsToBounds = true
+    countPill.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(countPill)
+
+    let label = UILabel()
+    label.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+    label.textColor = .secondaryLabel
+    label.text = "0 of 0"
+    label.textAlignment = .center
+    countLabel = label
+    label.translatesAutoresizingMaskIntoConstraints = false
+    countPill.contentView.addSubview(label)
+    NSLayoutConstraint.activate([
+      label.leadingAnchor.constraint(equalTo: countPill.contentView.leadingAnchor, constant: 12),
+      label.trailingAnchor.constraint(equalTo: countPill.contentView.trailingAnchor, constant: -12),
+      label.centerYAnchor.constraint(equalTo: countPill.contentView.centerYAnchor),
+    ])
+    NSLayoutConstraint.activate([
+      countPill.centerXAnchor.constraint(equalTo: centerXAnchor),
+      countPill.bottomAnchor.constraint(equalTo: topAnchor, constant: 6),
+      countPill.heightAnchor.constraint(equalToConstant: 28),
+    ])
+
+    // Main toolbar bar
+    let ev = UIVisualEffectView()
+    if #available(iOS 26.0, *) {
+      ev.effect = UIGlassEffect(style: .regular)
+    } else {
+      ev.effect = UIBlurEffect(style: .systemChromeMaterial)
+    }
+    ev.layer.cornerRadius = 28
+    ev.clipsToBounds = true
+    ev.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(ev)
+    NSLayoutConstraint.activate([
+      ev.topAnchor.constraint(equalTo: topAnchor),
+      ev.bottomAnchor.constraint(equalTo: bottomAnchor),
+      ev.leadingAnchor.constraint(equalTo: leadingAnchor),
+      ev.trailingAnchor.constraint(equalTo: trailingAnchor),
+    ])
+
+    // Bring count pill above the bar
+    bringSubviewToFront(countPill)
+
+    // Content stack — actions only (count is in the pill above)
+    let stack = UIStackView()
+    stack.axis = .horizontal
+    stack.distribution = .fillEqually
+    stack.alignment = .center
+    stack.spacing = 0
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    ev.contentView.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.centerYAnchor.constraint(equalTo: ev.contentView.centerYAnchor),
+      stack.leadingAnchor.constraint(equalTo: ev.contentView.leadingAnchor, constant: 12),
+      stack.trailingAnchor.constraint(equalTo: ev.contentView.trailingAnchor, constant: -12),
+    ])
+
+    // Action buttons with labels
+    let actions: [(icon: String, title: String, action: String, destructive: Bool)] = [
+      ("checkmark.square", "Select All", "selectAll", false),
+      ("folder.badge.plus", "Collection", "addToCollection", false),
+      ("bookmark", "Want to Read", "wantToRead", false),
+      ("checkmark.circle", "Finished", "markFinished", false),
+      ("trash", "Remove", "remove", true),
+      ("xmark", "Cancel", "cancel", false),
+    ]
+
+    for (index, item) in actions.enumerated() {
+      // Vertical stack: icon on top, label below
+      let itemStack = UIStackView()
+      itemStack.axis = .vertical
+      itemStack.alignment = .center
+      itemStack.spacing = 2
+
+      let btn = UIButton(type: .system)
+      let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+      btn.setImage(UIImage(systemName: item.icon)?.withConfiguration(config), for: .normal)
+      btn.tintColor = item.destructive ? .systemRed : .secondaryLabel
+      btn.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
+      btn.tag = index
+      btn.accessibilityLabel = item.title
+      NSLayoutConstraint.activate([
+        btn.widthAnchor.constraint(equalToConstant: 36),
+        btn.heightAnchor.constraint(equalToConstant: 28),
+      ])
+
+      let titleLabel = UILabel()
+      titleLabel.text = item.title
+      titleLabel.font = UIFont.systemFont(ofSize: 7, weight: .medium)
+      titleLabel.textColor = item.destructive ? .systemRed : .tertiaryLabel
+      titleLabel.textAlignment = .center
+      titleLabel.numberOfLines = 1
+
+      itemStack.addArrangedSubview(btn)
+      itemStack.addArrangedSubview(titleLabel)
+
+      stack.addArrangedSubview(itemStack)
+    }
+  }
+
+  private let actionNames = ["selectAll", "addToCollection", "wantToRead", "markFinished", "remove", "cancel"]
+
+  @objc private func actionTapped(_ sender: UIButton) {
+    feedbackGenerator.impactOccurred()
+    let action = actionNames[sender.tag]
+
+    switch action {
+    case "remove":
+      showRemoveConfirmation()
+    case "addToCollection":
+      showCollectionAlert()
+    default:
+      webView?.evaluateJavaScript("window.__nativeSelectionAction?.('\(action)')") { _, _ in }
+    }
+  }
+
+  private func topViewController() -> UIViewController? {
+    guard let vc = webView?.window?.rootViewController else { return nil }
+    var topVC = vc
+    while let presented = topVC.presentedViewController { topVC = presented }
+    return topVC
+  }
+
+  private func showRemoveConfirmation() {
+    guard let topVC = topViewController() else { return }
+    let alert = UIAlertController(
+      title: "Remove Selected Books",
+      message: "Are you sure you want to remove the selected books? This cannot be undone.",
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
+      self?.webView?.evaluateJavaScript("window.__nativeSelectionAction?.('confirmRemove')") { _, _ in }
+    })
+    topVC.present(alert, animated: true)
+  }
+
+  private func showCollectionAlert() {
+    // Tell JS to gather collections data and open native picker
+    webView?.evaluateJavaScript("window.__nativeSelectionAction?.('openCollectionPicker')") { _, _ in }
+  }
+}
+
+// MARK: - Native Toolbar (Home Page — Liquid Glass)
+// Hamburger button + "OpenRead" badge, positioned at top of screen.
+
+class NativeHomeToolbar: UIView {
+  private weak var webView: WKWebView?
+  private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
+  private var badgeBtn: UIButton!
+  private var searchBtn: UIButton!
+  private var plusBtn: UIButton!
+  private var rightStack: UIStackView!
+  private var isCollectionsMode = false
+
+  init(webView: WKWebView) {
+    self.webView = webView
+    super.init(frame: .zero)
+    feedbackGenerator.prepare()
+    setupView()
+  }
+
+  required init?(coder: NSCoder) { fatalError() }
+
+  /// Switch between home mode (OPENREAD badge) and collections mode (COLLECTIONS + search + plus)
+  func setCollectionsMode(_ enabled: Bool) {
+    guard enabled != isCollectionsMode else { return }
+    isCollectionsMode = enabled
+    rightStack.isHidden = !enabled
+
+    let title = enabled ? "COLLECTIONS" : "OPENREAD"
+    if #available(iOS 26.0, *) {
+      var config = UIButton.Configuration.glass()
+      var attr = AttributedString(title)
+      attr.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+      attr.kern = 1.5
+      config.attributedTitle = attr
+      config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18)
+      badgeBtn.configuration = config
+    } else {
+      badgeBtn.setTitle(title, for: .normal)
+    }
+  }
+
+  private func makeGlassCircleButton(icon: String) -> UIButton {
+    let btn = UIButton(type: .system)
+    btn.translatesAutoresizingMaskIntoConstraints = false
+    if #available(iOS 26.0, *) {
+      var config = UIButton.Configuration.glass()
+      config.image = UIImage(systemName: icon)?
+        .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .medium))
+      config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
+      btn.configuration = config
+    } else {
+      btn.setImage(
+        UIImage(systemName: icon)?
+          .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)),
+        for: .normal
+      )
+      btn.tintColor = .label
+      btn.backgroundColor = UIColor.systemGray5
+    }
+    btn.layer.cornerRadius = 20
+    btn.clipsToBounds = true
+    NSLayoutConstraint.activate([
+      btn.widthAnchor.constraint(equalToConstant: 40),
+      btn.heightAnchor.constraint(equalToConstant: 40),
+    ])
+    return btn
+  }
+
+  private func setupView() {
+    // Hamburger button — glass circle (40×40)
+    let menuBtn = makeGlassCircleButton(icon: "line.3.horizontal")
+    menuBtn.addTarget(self, action: #selector(menuTapped), for: .touchUpInside)
+
+    // Center badge — glass pill (40pt height, matches buttons)
+    badgeBtn = UIButton(type: .system)
+    badgeBtn.translatesAutoresizingMaskIntoConstraints = false
+    badgeBtn.isUserInteractionEnabled = false
+    if #available(iOS 26.0, *) {
+      var config = UIButton.Configuration.glass()
+      var attr = AttributedString("OPENREAD")
+      attr.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+      attr.kern = 1.5
+      config.attributedTitle = attr
+      config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18)
+      badgeBtn.configuration = config
+    } else {
+      badgeBtn.setTitle("OPENREAD", for: .normal)
+      badgeBtn.titleLabel?.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+      badgeBtn.setTitleColor(.secondaryLabel, for: .normal)
+      badgeBtn.backgroundColor = UIColor.systemGray5
+    }
+    badgeBtn.layer.cornerRadius = 20
+    badgeBtn.clipsToBounds = true
+    NSLayoutConstraint.activate([
+      badgeBtn.heightAnchor.constraint(equalToConstant: 40),
+    ])
+
+    // Search button — glass circle (40×40), collections mode only
+    searchBtn = makeGlassCircleButton(icon: "magnifyingglass")
+    searchBtn.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
+
+    // Plus button — glass circle (40×40), collections mode only
+    plusBtn = makeGlassCircleButton(icon: "plus")
+    plusBtn.addTarget(self, action: #selector(plusTapped), for: .touchUpInside)
+
+    // Right button stack (search + plus), hidden in home mode
+    rightStack = UIStackView(arrangedSubviews: [searchBtn, plusBtn])
+    rightStack.axis = .horizontal
+    rightStack.spacing = 8
+    rightStack.translatesAutoresizingMaskIntoConstraints = false
+    rightStack.isHidden = true
+
+    addSubview(menuBtn)
+    addSubview(badgeBtn)
+    addSubview(rightStack)
+
+    NSLayoutConstraint.activate([
+      menuBtn.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+      menuBtn.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+      badgeBtn.centerXAnchor.constraint(equalTo: centerXAnchor),
+      badgeBtn.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+      rightStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+      rightStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+    ])
+  }
+
+  @objc private func menuTapped() {
+    feedbackGenerator.impactOccurred()
+    webView?.evaluateJavaScript("window.__nativeMenuAction?.()") { _, _ in }
+  }
+
+  @objc private func searchTapped() {
+    feedbackGenerator.impactOccurred()
+    webView?.evaluateJavaScript("window.__nativeCollectionSearch?.()") { _, _ in }
+  }
+
+  @objc private func plusTapped() {
+    feedbackGenerator.impactOccurred()
+    webView?.evaluateJavaScript("window.__nativeCollectionCreate?.()") { _, _ in }
+  }
+}
+
+// MARK: - Native Collection Toolbar (Liquid Glass)
+// Shows on collection detail: ← Collections | ⋮ kebab (name shown in web content below)
+class NativeCollectionToolbar: UIView {
+  private weak var webView: WKWebView?
+  private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
+  private var collectionName: String = ""
+  private var collectionId: String = ""
+
+  init(webView: WKWebView) {
+    self.webView = webView
+    super.init(frame: .zero)
+    feedbackGenerator.prepare()
+    setupView()
+  }
+
+  required init?(coder: NSCoder) { fatalError() }
+
+  func update(name: String, id: String) {
+    collectionName = name
+    collectionId = id
+  }
+
+  private func setupView() {
+    // ← Collections button (glass pill) — matches hamburger height (40pt)
+    let backBtn = UIButton(type: .system)
+    backBtn.translatesAutoresizingMaskIntoConstraints = false
+    if #available(iOS 26.0, *) {
+      var config = UIButton.Configuration.glass()
+      config.image = UIImage(systemName: "chevron.left")?
+        .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold))
+      var attr = AttributedString("Collections")
+      attr.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+      config.attributedTitle = attr
+      config.imagePadding = 4
+      config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 16)
+      backBtn.configuration = config
+    } else {
+      backBtn.setImage(
+        UIImage(systemName: "chevron.left")?
+          .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)),
+        for: .normal
+      )
+      backBtn.setTitle(" Collections", for: .normal)
+      backBtn.titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+      backBtn.tintColor = .label
+      backBtn.backgroundColor = UIColor.systemGray5
+    }
+    backBtn.layer.cornerRadius = 20
+    backBtn.clipsToBounds = true
+    backBtn.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
+    NSLayoutConstraint.activate([
+      backBtn.heightAnchor.constraint(equalToConstant: 40),
+    ])
+
+    // Kebab button (glass circle) — same size as hamburger (40×40, icon 16pt)
+    let kebabBtn = UIButton(type: .system)
+    kebabBtn.translatesAutoresizingMaskIntoConstraints = false
+    if #available(iOS 26.0, *) {
+      var config = UIButton.Configuration.glass()
+      config.image = UIImage(systemName: "ellipsis")?
+        .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .medium))
+      config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
+      kebabBtn.configuration = config
+    } else {
+      kebabBtn.setImage(
+        UIImage(systemName: "ellipsis")?
+          .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)),
+        for: .normal
+      )
+      kebabBtn.tintColor = .label
+      kebabBtn.backgroundColor = UIColor.systemGray5
+    }
+    kebabBtn.layer.cornerRadius = 20
+    kebabBtn.clipsToBounds = true
+    kebabBtn.showsMenuAsPrimaryAction = true
+    kebabBtn.menu = UIMenu(children: [
+      UIAction(title: "Rename", image: UIImage(systemName: "pencil")) { [weak self] _ in
+        self?.feedbackGenerator.impactOccurred()
+        self?.handleRename()
+      },
+      UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+        self?.feedbackGenerator.impactOccurred()
+        self?.handleDelete()
+      },
+    ])
+    NSLayoutConstraint.activate([
+      kebabBtn.widthAnchor.constraint(equalToConstant: 40),
+      kebabBtn.heightAnchor.constraint(equalToConstant: 40),
+    ])
+
+    addSubview(backBtn)
+    addSubview(kebabBtn)
+
+    NSLayoutConstraint.activate([
+      backBtn.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+      backBtn.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+      kebabBtn.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+      kebabBtn.centerYAnchor.constraint(equalTo: centerYAnchor),
+    ])
+  }
+
+  @objc private func backTapped() {
+    feedbackGenerator.impactOccurred()
+    webView?.evaluateJavaScript("window.__nativeCollectionBack?.()") { _, _ in }
+  }
+
+  private func handleRename() {
+    guard let vc = webView?.window?.rootViewController else { return }
+    var topVC = vc
+    while let presented = topVC.presentedViewController { topVC = presented }
+
+    let alert = UIAlertController(title: "Rename Collection", message: nil, preferredStyle: .alert)
+    alert.addTextField { [weak self] tf in
+      tf.text = self?.collectionName ?? ""
+      tf.autocapitalizationType = .words
+      tf.selectAll(nil)
+    }
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    alert.addAction(UIAlertAction(title: "Rename", style: .default) { [weak self] _ in
+      let newName = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      if !newName.isEmpty {
+        self?.collectionName = newName
+        let escaped = newName.replacingOccurrences(of: "'", with: "\\'")
+        let idEscaped = self?.collectionId.replacingOccurrences(of: "'", with: "\\'") ?? ""
+        self?.webView?.evaluateJavaScript("window.__nativeCollectionAction?.('rename', '\(idEscaped)', '\(escaped)')") { _, _ in }
+      }
+    })
+    topVC.present(alert, animated: true)
+  }
+
+  private func handleDelete() {
+    guard let vc = webView?.window?.rootViewController else { return }
+    var topVC = vc
+    while let presented = topVC.presentedViewController { topVC = presented }
+
+    let name = collectionName.isEmpty ? "this collection" : collectionName
+    let alert = UIAlertController(
+      title: "Delete Collection?",
+      message: "This will delete \"\(name)\". Your books will not be deleted.",
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+      let idEscaped = self?.collectionId.replacingOccurrences(of: "'", with: "\\'") ?? ""
+      self?.webView?.evaluateJavaScript("window.__nativeCollectionAction?.('delete', '\(idEscaped)')") { _, _ in }
+    })
+    topVC.present(alert, animated: true)
+  }
+}
+
+// MARK: - Native Footer Bar (Liquid Glass)
+// 3 tab buttons (TOC, Chat, Settings) with system blur material.
+class NativeFooterBar: UIView {
+  private let barHeight: CGFloat = 56
+  private let iconSize: CGFloat = 22
+  private let pillSize: CGFloat = 42
+  private weak var webView: WKWebView?
+  private var buttons: [UIButton] = []
+  private var activeIndex: Int = -1
+  private let actions = ["toc", "chat", "settings"]
+  var glassEffectView: UIVisualEffectView!
+
+  private let items: [(icon: String, action: String)] = [
+    ("list.bullet", "toc"),
+    ("bubble.left.and.bubble.right", "chat"),
+    ("gearshape", "settings"),
+  ]
+
+  init(webView: WKWebView) {
+    self.webView = webView
+    super.init(frame: .zero)
+    setupView()
+  }
+
+  required init?(coder: NSCoder) { fatalError() }
+
+  private func setupView() {
+    let ev = UIVisualEffectView()
+    if #available(iOS 26.0, *) {
+      let glass = UIGlassEffect(style: .regular)
+      glass.isInteractive = true
+      ev.effect = glass
+    } else {
+      ev.effect = UIBlurEffect(style: .systemChromeMaterial)
+    }
+    ev.layer.cornerRadius = barHeight / 2
+    ev.clipsToBounds = true
+    ev.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(ev)
+    NSLayoutConstraint.activate([
+      ev.topAnchor.constraint(equalTo: topAnchor),
+      ev.bottomAnchor.constraint(equalTo: bottomAnchor),
+      ev.leadingAnchor.constraint(equalTo: leadingAnchor),
+      ev.trailingAnchor.constraint(equalTo: trailingAnchor),
+    ])
+    glassEffectView = ev
+
+    layer.cornerRadius = barHeight / 2
+    if #unavailable(iOS 26) {
+      layer.borderWidth = 1.0 / UIScreen.main.scale
+      layer.borderColor = UIColor.separator.withAlphaComponent(0.2).cgColor
+      layer.shadowColor = UIColor.black.cgColor
+      layer.shadowOpacity = 0.12
+      layer.shadowRadius = 12
+      layer.shadowOffset = CGSize(width: 0, height: 4)
+    }
+
+    let stack = UIStackView()
+    stack.axis = .horizontal
+    stack.distribution = .equalSpacing
+    stack.alignment = .center
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    ev.contentView.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.centerYAnchor.constraint(equalTo: ev.contentView.centerYAnchor),
+      stack.leadingAnchor.constraint(equalTo: ev.contentView.leadingAnchor, constant: 20),
+      stack.trailingAnchor.constraint(equalTo: ev.contentView.trailingAnchor, constant: -20),
+    ])
+
+    for (i, item) in items.enumerated() {
+      let btn = UIButton(type: .system)
+      btn.tag = i
+      let image = UIImage(systemName: item.icon)?.withConfiguration(
+        UIImage.SymbolConfiguration(pointSize: iconSize, weight: .medium)
+      )
+      btn.setImage(image, for: .normal)
+      btn.tintColor = .secondaryLabel
+      btn.translatesAutoresizingMaskIntoConstraints = false
+      btn.addTarget(self, action: #selector(tabTouchDown(_:)), for: .touchDown)
+      btn.addTarget(self, action: #selector(tabTouchUp(_:)), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+      btn.addTarget(self, action: #selector(tabTapped(_:)), for: .touchUpInside)
+      NSLayoutConstraint.activate([
+        btn.widthAnchor.constraint(equalToConstant: pillSize),
+        btn.heightAnchor.constraint(equalToConstant: pillSize),
+      ])
+      stack.addArrangedSubview(btn)
+      buttons.append(btn)
+    }
+  }
+
+  @objc private func tabTouchDown(_ sender: UIButton) {
+    // Scale up with spring — the "glass bubble" press effect
+    UIView.animate(withDuration: 0.15, delay: 0, options: .curveEaseOut) {
+      sender.transform = CGAffineTransform(scaleX: 1.25, y: 1.25)
+    }
+  }
+
+  @objc private func tabTouchUp(_ sender: UIButton) {
+    // Spring back to normal
+    UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.5, initialSpringVelocity: 0.8) {
+      sender.transform = .identity
+    }
+  }
+
+  @objc private func tabTapped(_ sender: UIButton) {
+    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    let tappedIndex = sender.tag
+    let newIndex = tappedIndex == activeIndex ? -1 : tappedIndex
+    updateActiveIndex(newIndex)
+    webView?.evaluateJavaScript("window.__nativeFooterAction?.('\(actions[sender.tag])')") { _, _ in }
+  }
+
+  func setActiveTab(_ tab: String) {
+    if let index = actions.firstIndex(of: tab) {
+      updateActiveIndex(index)
+    }
+  }
+
+  func resetSelection() {
+    updateActiveIndex(-1)
+  }
+
+  private func updateActiveIndex(_ index: Int) {
+    activeIndex = index
+    for (i, btn) in buttons.enumerated() {
+      btn.tintColor = i == index ? .tintColor : .secondaryLabel
+    }
+  }
+
+}
+
+// MARK: - Custom Edit Menu Items for WKWebView Text Selection
+// Adds Highlight, Add Note, Search in Book to the iOS native edit menu.
+// These methods are found via the UIResponder chain when text is selected.
+extension WKWebView {
+  @objc func openread_highlight() {
+    evaluateJavaScript("window.__nativeTextSelectionAction('highlight')") { _, _ in }
+  }
+
+  @objc func openread_addNote() {
+    evaluateJavaScript("window.__nativeTextSelectionAction('annotate')") { _, _ in }
+  }
+
+  @objc func openread_searchInBook() {
+    evaluateJavaScript("window.__nativeTextSelectionAction('search')") { _, _ in }
+  }
+
+  @objc func openread_wikipedia() {
+    evaluateJavaScript("window.__nativeTextSelectionAction('wikipedia')") { _, _ in }
+  }
+}
+
+class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
   private var webView: WKWebView?
   private var authSession: ASWebAuthenticationSession?
   private var currentOrientationMask: UIInterfaceOrientationMask = .all
   private var originalDelegate: UIApplicationDelegate?
   private var webViewLifecycleManager: WebViewLifecycleManager?
+  private var colorPicker: NativeColorPicker?
+  private var footerBar: NativeFooterBar?
+  private var homeToolbar: NativeHomeToolbar?
+  private var collectionToolbar: NativeCollectionToolbar?
+  private var selectionToolbar: NativeSelectionToolbar?
+  private var sidebarCloseButton: UIButton?
+  private var urlObservation: NSKeyValueObservation?
+
+  /// Show native rename alert with text field.
+  private func showRenameAlert(bookHash: String, currentTitle: String) {
+    guard let vc = webView?.window?.rootViewController else { return }
+    var topVC = vc
+    while let presented = topVC.presentedViewController { topVC = presented }
+
+    let alert = UIAlertController(title: "Rename Book", message: nil, preferredStyle: .alert)
+    alert.addTextField { textField in
+      textField.text = currentTitle
+      textField.autocapitalizationType = .words
+      textField.selectAll(nil)
+    }
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    alert.addAction(UIAlertAction(title: "Rename", style: .default) { [weak self] _ in
+      let newName = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      if !newName.isEmpty && newName != currentTitle {
+        let escaped = newName.replacingOccurrences(of: "'", with: "\\'")
+        let hashEscaped = bookHash.replacingOccurrences(of: "'", with: "\\'")
+        self?.webView?.evaluateJavaScript("window.__nativeBookRename?.('\(hashEscaped)', '\(escaped)')") { _, _ in }
+      }
+    })
+    topVC.present(alert, animated: true)
+  }
+
+  /// Show footer bar with horizontal expand animation (matches chat bar shrink).
+  private func showFooterBar() {
+    footerBar?.transform = CGAffineTransform(scaleX: 0.01, y: 1)
+    footerBar?.alpha = 1
+    if #available(iOS 26.0, *) {
+      let glass = UIGlassEffect(style: .regular)
+      glass.isInteractive = true
+      footerBar?.glassEffectView.effect = glass
+    }
+    UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.5) {
+      self.footerBar?.transform = .identity
+    }
+  }
+
+  /// Show native glass close button for sidebar overlay.
+  private func showSidebarCloseButton() {
+    // Create button if first time
+    if sidebarCloseButton == nil, let parent = webView?.superview {
+      let btn = UIButton(type: .system)
+      btn.translatesAutoresizingMaskIntoConstraints = false
+      if #available(iOS 26.0, *) {
+        var config = UIButton.Configuration.glass()
+        config.image = UIImage(systemName: "xmark")?
+          .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold))
+        config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
+        btn.configuration = config
+      } else {
+        btn.setImage(
+          UIImage(systemName: "xmark")?
+            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)),
+          for: .normal
+        )
+        btn.tintColor = .label
+        btn.backgroundColor = UIColor.systemGray5
+      }
+      btn.layer.cornerRadius = 20
+      btn.clipsToBounds = true
+      btn.addTarget(self, action: #selector(sidebarCloseTapped), for: .touchUpInside)
+      parent.addSubview(btn)
+      let topPadding: CGFloat = parent.safeAreaInsets.top + 16
+      NSLayoutConstraint.activate([
+        btn.leadingAnchor.constraint(equalTo: parent.leadingAnchor, constant: 16),
+        btn.topAnchor.constraint(equalTo: parent.topAnchor, constant: topPadding),
+        btn.widthAnchor.constraint(equalToConstant: 40),
+        btn.heightAnchor.constraint(equalToConstant: 40),
+      ])
+      sidebarCloseButton = btn
+    }
+    sidebarCloseButton?.alpha = 1
+    homeToolbar?.alpha = 0
+  }
+
+  /// Hide sidebar close button and restore toolbar.
+  private func hideSidebarCloseButton() {
+    sidebarCloseButton?.alpha = 0
+  }
+
+  @objc private func sidebarCloseTapped() {
+    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    hideSidebarCloseButton()
+    // Tell web to close the sidebar
+    webView?.evaluateJavaScript("window.__nativeSidebarClose?.()") { _, _ in }
+  }
+
+  /// Hide footer bar with horizontal shrink animation (matches chat bar expand).
+  private func hideFooterBar() {
+    UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseIn, animations: {
+      self.footerBar?.transform = CGAffineTransform(scaleX: 0.01, y: 1)
+    }) { _ in
+      self.footerBar?.alpha = 0
+      self.footerBar?.transform = .identity
+      if #available(iOS 26.0, *) {
+        self.footerBar?.glassEffectView.effect = nil
+      }
+    }
+    footerBar?.resetSelection()
+  }
+
+  // WKScriptMessageHandler — receives messages from JS (main frame only)
+  func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+    // Reject messages from EPUB content iframes to prevent UI spoofing
+    if !message.frameInfo.isMainFrame { return }
+    guard let body = message.body as? [String: Any] else { return }
+
+    switch message.name {
+    case "openreadColorPicker":
+      guard let selected = body["selectedColor"] as? String,
+            let showDelete = body["showDelete"] as? Bool else { return }
+      // Use JS-provided viewport coordinates directly.
+      // The JS side computes these using getBoundingClientRect on the
+      // selection range or annotation element, already in viewport space.
+      let x = body["x"] as? CGFloat ?? 0
+      let y = body["y"] as? CGFloat ?? 0
+      colorPicker?.show(at: CGPoint(x: x, y: y), selected: selected, withDelete: showDelete)
+
+    case "openreadColorPickerHide":
+      colorPicker?.hide()
+
+    case "openreadToolbarVisible":
+      let visible = body["visible"] as? Bool ?? true
+      self.homeToolbar?.alpha = visible ? 1 : 0
+
+    case "openreadSelectionToolbar":
+      let visible = body["visible"] as? Bool ?? false
+      let selected = body["selected"] as? Int ?? 0
+      let total = body["total"] as? Int ?? 0
+      if visible {
+        self.selectionToolbar?.updateCount(selected, total)
+        self.selectionToolbar?.alpha = 1
+        self.homeToolbar?.alpha = 0
+      } else {
+        self.selectionToolbar?.alpha = 0
+        // Restore home toolbar if on platform page
+        let path = self.webView?.url?.path ?? ""
+        let isPlatform = path.hasPrefix("/home") || path.hasPrefix("/library") || path.hasPrefix("/collections")
+        self.homeToolbar?.alpha = isPlatform ? 1 : 0
+      }
+
+    case "openreadCollectionPicker":
+      let collections = body["collections"] as? [[String: Any]] ?? []
+      let bookHashes = body["bookHashes"] as? [String] ?? []
+      UIImpactFeedbackGenerator(style: .light).impactOccurred()
+      let picker = NativeCollectionPicker(webView: self.webView!, collections: collections, bookHashes: bookHashes)
+      let nav = UINavigationController(rootViewController: picker)
+      nav.modalPresentationStyle = .formSheet
+      if let sheet = nav.sheetPresentationController {
+        sheet.detents = [.medium(), .large()]
+        sheet.prefersGrabberVisible = true
+      }
+      var topVC = self.webView?.window?.rootViewController
+      while let presented = topVC?.presentedViewController { topVC = presented }
+      topVC?.present(nav, animated: true)
+
+    case "openreadTextInput":
+      let title = body["title"] as? String ?? "Input"
+      let message = body["message"] as? String
+      let placeholder = body["placeholder"] as? String ?? ""
+      let defaultValue = body["defaultValue"] as? String ?? ""
+      let callbackId = body["callbackId"] as? String ?? ""
+      UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+      guard let vc = self.webView?.window?.rootViewController else { break }
+      var topVC = vc
+      while let presented = topVC.presentedViewController { topVC = presented }
+
+      let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+      alert.addTextField { tf in
+        tf.placeholder = placeholder
+        tf.text = defaultValue
+        tf.autocapitalizationType = .words
+        if !defaultValue.isEmpty { tf.selectAll(nil) }
+      }
+      alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+      alert.addAction(UIAlertAction(title: "Done", style: .default) { [weak self] _ in
+        let value = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !value.isEmpty {
+          let escaped = value.replacingOccurrences(of: "'", with: "\\'")
+          let cbEscaped = callbackId.replacingOccurrences(of: "'", with: "\\'")
+          self?.webView?.evaluateJavaScript("window.__nativeTextInputResult?.('\(cbEscaped)', '\(escaped)')") { _, _ in }
+        }
+      })
+      topVC.present(alert, animated: true)
+
+    case "openreadCollectionToolbar":
+      let visible = body["visible"] as? Bool ?? false
+      if visible {
+        let name = body["name"] as? String ?? ""
+        let id = body["id"] as? String ?? ""
+        self.collectionToolbar?.update(name: name, id: id)
+        self.collectionToolbar?.alpha = 1
+        self.homeToolbar?.alpha = 0
+      } else {
+        self.collectionToolbar?.alpha = 0
+        let path = self.webView?.url?.path ?? ""
+        let isPlatform = path.hasPrefix("/home") || path.hasPrefix("/library") || path.hasPrefix("/collections")
+        self.homeToolbar?.alpha = isPlatform ? 1 : 0
+      }
+
+    case "openreadRenameBook":
+      let bookHash = body["bookHash"] as? String ?? ""
+      let currentTitle = body["currentTitle"] as? String ?? ""
+      UIImpactFeedbackGenerator(style: .light).impactOccurred()
+      showRenameAlert(bookHash: bookHash, currentTitle: currentTitle)
+
+    case "openreadSidebarVisible":
+      let visible = body["visible"] as? Bool ?? false
+      if visible {
+        self.showSidebarCloseButton()
+      } else {
+        self.hideSidebarCloseButton()
+      }
+
+    case "openreadFooterVisible":
+      let visible = body["visible"] as? Bool ?? false
+      let activeTab = body["activeTab"] as? String
+      if visible {
+        showFooterBar()
+        if let tab = activeTab {
+          footerBar?.setActiveTab(tab)
+        }
+      } else {
+        hideFooterBar()
+      }
+
+    default:
+      break
+    }
+  }
 
   @objc public override func load(webview: WKWebView) {
     self.webView = webview
     logger.log("NativeBridgePlugin loaded")
+
+    // Register custom items in the iOS text selection edit menu.
+    // UIMenuController.menuItems is deprecated (iOS 16) but remains the only
+    // public API to inject items into WKWebView's edit menu without using
+    // private classes. The WKWebView extension above provides the action
+    // targets — the responder chain finds them when text is selected.
+    UIMenuController.shared.menuItems = [
+      UIMenuItem(title: "Highlight", action: #selector(WKWebView.openread_highlight)),
+      UIMenuItem(title: "Add Note", action: #selector(WKWebView.openread_addNote)),
+      UIMenuItem(title: "Search in Book", action: #selector(WKWebView.openread_searchInBook)),
+      UIMenuItem(title: "Wikipedia", action: #selector(WKWebView.openread_wikipedia)),
+    ]
+
+    // Register JS → Native message handlers for color picker and footer
+    let contentController = webview.configuration.userContentController
+    contentController.add(self, name: "openreadColorPicker")
+    contentController.add(self, name: "openreadColorPickerHide")
+    contentController.add(self, name: "openreadFooterVisible")
+    contentController.add(self, name: "openreadToolbarVisible")
+    contentController.add(self, name: "openreadSidebarVisible")
+    contentController.add(self, name: "openreadSelectionToolbar")
+    contentController.add(self, name: "openreadRenameBook")
+    contentController.add(self, name: "openreadCollectionPicker")
+    contentController.add(self, name: "openreadCollectionToolbar")
+    contentController.add(self, name: "openreadTextInput")
+    logger.log("NativeBridgePlugin: JS message handlers registered")
+
+    // Native color picker overlay — added to the key window's root view
+    // so it floats above everything and uses screen coordinates directly
+    let picker = NativeColorPicker(webView: webview)
+    // Keep translatesAutoresizingMaskIntoConstraints = true (default)
+    // so we can position with frame in show(at:)
+    if let keyWindow = UIApplication.shared.connectedScenes
+        .compactMap({ $0 as? UIWindowScene })
+        .flatMap({ $0.windows })
+        .first(where: { $0.isKeyWindow }) {
+      keyWindow.addSubview(picker)
+    } else {
+      webview.superview?.addSubview(picker)
+    }
+    self.colorPicker = picker
+    logger.log("NativeBridgePlugin: Native color picker created")
+
+    // Native home toolbar (glass hamburger + OpenRead badge)
+    let toolbar = NativeHomeToolbar(webView: webview)
+    toolbar.translatesAutoresizingMaskIntoConstraints = false
+    toolbar.alpha = 0  // Hidden until a platform page loads
+    if let parent = webview.superview {
+      parent.addSubview(toolbar)
+      let topPadding: CGFloat = parent.safeAreaInsets.top + 8
+      NSLayoutConstraint.activate([
+        toolbar.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+        toolbar.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
+        toolbar.topAnchor.constraint(equalTo: parent.topAnchor, constant: topPadding),
+        toolbar.heightAnchor.constraint(equalToConstant: 44),
+      ])
+    }
+    self.homeToolbar = toolbar
+    logger.log("NativeBridgePlugin: Native home toolbar created")
+
+    // Native collection detail toolbar (← Collections | Name | ⋮)
+    let colToolbar = NativeCollectionToolbar(webView: webview)
+    colToolbar.translatesAutoresizingMaskIntoConstraints = false
+    colToolbar.alpha = 0  // Hidden until collection detail view
+    if let parent = webview.superview {
+      parent.addSubview(colToolbar)
+      let topPadding: CGFloat = parent.safeAreaInsets.top + 8
+      NSLayoutConstraint.activate([
+        colToolbar.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+        colToolbar.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
+        colToolbar.topAnchor.constraint(equalTo: parent.topAnchor, constant: topPadding),
+        colToolbar.heightAnchor.constraint(equalToConstant: 44),
+      ])
+    }
+    self.collectionToolbar = colToolbar
+    logger.log("NativeBridgePlugin: Native collection toolbar created")
+
+    // Native selection toolbar (multi-select actions)
+    let selToolbar = NativeSelectionToolbar(webView: webview)
+    selToolbar.translatesAutoresizingMaskIntoConstraints = false
+    selToolbar.alpha = 0  // Hidden until select mode
+    if let parent = webview.superview {
+      parent.addSubview(selToolbar)
+      let bottomPadding: CGFloat = parent.safeAreaInsets.bottom > 0 ? parent.safeAreaInsets.bottom - 10 : 8
+      NSLayoutConstraint.activate([
+        selToolbar.centerXAnchor.constraint(equalTo: parent.centerXAnchor),
+        selToolbar.leadingAnchor.constraint(equalTo: parent.leadingAnchor, constant: 12),
+        selToolbar.trailingAnchor.constraint(equalTo: parent.trailingAnchor, constant: -12),
+        selToolbar.bottomAnchor.constraint(equalTo: parent.bottomAnchor, constant: -bottomPadding),
+        selToolbar.heightAnchor.constraint(equalToConstant: 64),
+      ])
+    }
+    self.selectionToolbar = selToolbar
+    logger.log("NativeBridgePlugin: Native selection toolbar created")
+
+    // Centralized route-based visibility for all native UI elements
+    let updateVisibility: (WKWebView) -> Void = { [weak self] webView in
+      self?.colorPicker?.hide()
+      let path = webView.url?.path ?? ""
+      let query = webView.url?.query ?? ""
+      let isReader = path.hasPrefix("/reader")
+      let isPlatformPage = path.hasPrefix("/home") || path.hasPrefix("/library")
+        || path.hasPrefix("/collections")
+      let isCollectionDetail = path.hasPrefix("/collections") && query.contains("id=")
+      let isCollectionList = path.hasPrefix("/collections") && !query.contains("id=")
+      // Collection detail: web controls toolbar via message handler
+      // Collection list: home toolbar in collections mode (COLLECTIONS + search + plus)
+      // Other pages: home toolbar in default mode (OPENREAD)
+      if !isCollectionDetail {
+        self?.collectionToolbar?.alpha = 0
+        self?.homeToolbar?.alpha = isPlatformPage ? 1 : 0
+        self?.homeToolbar?.setCollectionsMode(isCollectionList)
+      }
+      // Sidebar close button: hide on navigation
+      self?.hideSidebarCloseButton()
+      // Footer bar: only in reader
+      if !isReader {
+        self?.hideFooterBar()
+      }
+    }
+    // Fire immediately for initial page, then observe future changes
+    updateVisibility(webview)
+    urlObservation = webview.observe(\.url, options: [.new]) { webView, _ in
+      updateVisibility(webView)
+    }
+
+    // Native footer bar
+    let footer = NativeFooterBar(webView: webview)
+    footer.translatesAutoresizingMaskIntoConstraints = false
+    footer.alpha = 0  // Hidden until web tells us to show
+    if let parent = webview.superview {
+      parent.addSubview(footer)
+      let bottomPadding: CGFloat = parent.safeAreaInsets.bottom > 0 ? parent.safeAreaInsets.bottom - 10 : 8
+      NSLayoutConstraint.activate([
+        footer.centerXAnchor.constraint(equalTo: parent.centerXAnchor),
+        footer.widthAnchor.constraint(equalToConstant: 220),
+        footer.bottomAnchor.constraint(equalTo: parent.bottomAnchor, constant: -bottomPadding),
+        footer.heightAnchor.constraint(equalToConstant: 56),
+      ])
+    }
+    self.footerBar = footer
+    logger.log("NativeBridgePlugin: Native footer bar created")
 
     webViewLifecycleManager = WebViewLifecycleManager()
     webViewLifecycleManager?.startMonitoring(webView: webview)
@@ -494,6 +2058,7 @@ class NativeBridgePlugin: Plugin {
   }
 
   deinit {
+    urlObservation?.invalidate()
     webViewLifecycleManager?.stopMonitoring()
     webViewLifecycleManager = nil
 
@@ -589,8 +2154,14 @@ class NativeBridgePlugin: Plugin {
 
       let keyWindow = windows.first(where: { $0.isKeyWindow }) ?? windows.first
       if let keyWindow = keyWindow {
-        keyWindow.overrideUserInterfaceStyle = darkMode ? .dark : .light
-        keyWindow.layoutIfNeeded()
+        let targetStyle: UIUserInterfaceStyle = darkMode ? .dark : .light
+        // Only set if changed — avoids unnecessary trait propagation through WKWebView
+        if keyWindow.overrideUserInterfaceStyle != targetStyle {
+          keyWindow.overrideUserInterfaceStyle = targetStyle
+        }
+        // Removed layoutIfNeeded() — it forced a synchronous layout pass on the
+        // entire WKWebView, causing a visible page flash on every toolbar toggle.
+        // UIKit applies style changes automatically on the next display cycle.
       } else {
         logger.error("No key window found")
       }
@@ -877,6 +2448,23 @@ class NativeBridgePlugin: Plugin {
       invoke.resolve(["success": true])
     } catch {
       invoke.reject("Failed to copy file: \(error.localizedDescription)")
+    }
+  }
+
+  @objc public func get_safe_area_insets(_ invoke: Invoke) {
+    DispatchQueue.main.async { [weak self] in
+      guard let webView = self?.webView,
+            let window = webView.window else {
+        invoke.resolve(["top": 0, "right": 0, "bottom": 0, "left": 0])
+        return
+      }
+      let insets = window.safeAreaInsets
+      invoke.resolve([
+        "top": insets.top,
+        "right": insets.right,
+        "bottom": insets.bottom,
+        "left": insets.left,
+      ])
     }
   }
 

@@ -8,6 +8,7 @@ import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { getCurrentWindow, getAllWindows } from '@tauri-apps/api/window';
 import { isTauriAppPlatform } from '@/services/environment';
 import { navigateToLibrary, showLibraryWindow } from '@/utils/nav';
+import { eventDispatcher } from '@/utils/event';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('openWithBooks');
@@ -62,7 +63,15 @@ export function useOpenWithBooks() {
       } else {
         window.OPEN_WITH_FILES = filePaths;
         setCheckOpenWithBooks(true);
-        navigateToLibrary(router, `reload=${Date.now()}`);
+        // If in reader, don't navigate away — show toast instead of destroying the session
+        if (window.location.pathname.startsWith('/reader')) {
+          eventDispatcher.dispatch('toast', {
+            message: `${filePaths.length} book(s) added. Go to library to open.`,
+            type: 'info',
+          });
+        } else {
+          navigateToLibrary(router, `reload=${Date.now()}`);
+        }
       }
     }
   };

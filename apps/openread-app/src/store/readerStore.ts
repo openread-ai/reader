@@ -103,7 +103,10 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
         [key]: { ...state.viewStates[key]!, view },
       },
     })),
-  getViews: () => Object.values(get().viewStates).map((state) => state.view!),
+  getViews: () =>
+    Object.values(get().viewStates)
+      .map((state) => state.view)
+      .filter(Boolean) as FoliateView[],
   getViewsById: (id: string) => {
     const { viewStates } = get();
     return Object.values(viewStates)
@@ -232,7 +235,12 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
             rsvpEnabled: false,
             syncing: false,
             gridInsets: null,
-            viewSettings: { ...globalViewSettings, ...configViewSettings },
+            viewSettings: {
+              ...globalViewSettings,
+              // On mobile, default to scroll mode (most mobile readers scroll)
+              ...(appService.isMobile ? { scrolled: true } : {}),
+              ...configViewSettings,
+            },
           },
         },
       }));
@@ -317,33 +325,32 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
       // calculate progress percentage
       const progressPercentage = Math.round((progress[0] / progress[1]) * 100);
 
-      // update library book progress
+      // update library book progress — only when it actually changed
       const { library, setLibrary } = useLibraryStore.getState();
       const bookIndex = library.findIndex((b) => b.hash === id);
       if (bookIndex !== -1) {
-        const updatedLibrary = [...library];
-        const existingBook = updatedLibrary[bookIndex]!;
+        const existingBook = library[bookIndex]!;
+        const [oldCurrent, oldTotal] = existingBook.progress ?? [0, 0];
 
-        // determine new reading status
-        let newReadingStatus = existingBook.readingStatus;
+        // Skip library update if progress hasn't changed (avoids cascading re-renders)
+        if (oldCurrent !== progress[0] || oldTotal !== progress[1]) {
+          let newReadingStatus = existingBook.readingStatus;
+          if (existingBook.readingStatus === 'unread') {
+            newReadingStatus = undefined;
+          }
+          if (progressPercentage >= 100 && existingBook.readingStatus !== 'finished') {
+            newReadingStatus = 'finished';
+          }
 
-        // auto-clear 'unread' status when user starts reading (progress changes)
-        if (existingBook.readingStatus === 'unread') {
-          newReadingStatus = undefined;
+          const updatedLibrary = [...library];
+          updatedLibrary[bookIndex] = {
+            ...existingBook,
+            progress,
+            readingStatus: newReadingStatus,
+            updatedAt: Date.now(),
+          };
+          setLibrary(updatedLibrary);
         }
-
-        // auto mark as 'finished' when progress reaches 100%
-        if (progressPercentage >= 100 && existingBook.readingStatus !== 'finished') {
-          newReadingStatus = 'finished';
-        }
-
-        updatedLibrary[bookIndex] = {
-          ...existingBook,
-          progress,
-          readingStatus: newReadingStatus,
-          updatedAt: Date.now(),
-        };
-        setLibrary(updatedLibrary);
       }
 
       const oldConfig = bookData.config;

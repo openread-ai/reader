@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useSync } from '@/hooks/useSync';
 import { BookNote } from '@/types/book';
@@ -49,6 +49,16 @@ export const useNotesSync = (bookKey: string) => {
     ),
     [syncNotes],
   );
+
+  // Pull notes once when the book opens (fills local state from server on fresh install)
+  const hasPulledNotesOnce = useRef(false);
+  useEffect(() => {
+    if (!config?.location || !user || hasPulledNotesOnce.current) return;
+    hasPulledNotesOnce.current = true;
+    const book = getBookData(bookKey)?.book;
+    syncNotes([], book?.hash, book?.metaHash, 'pull');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config?.location, user]);
 
   useEffect(() => {
     if (!config?.location || !user) return;

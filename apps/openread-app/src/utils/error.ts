@@ -8,16 +8,9 @@ export function getErrorMessage(error: unknown, fallback = 'Unknown error'): str
 }
 
 export const handleGlobalError = (e: Error) => {
-  const isChunkError = e?.message?.includes('Loading chunk');
-
-  if (!isChunkError) {
-    const now = Date.now();
-    const lastReload = Number(sessionStorage.getItem('lastErrorReload') || '0');
-    if (now - lastReload > 60_000) {
-      sessionStorage.setItem('lastErrorReload', String(now));
-      window.location.reload();
-    } else {
-      logger.warn('Error detected, but reload suppressed (rate limit)');
-    }
-  }
+  // Log the error but do NOT auto-reload. The previous behavior reloaded
+  // the page on any uncaught exception (rate-limited to once per 60s),
+  // which caused unexpected reader reloads from transient errors like
+  // network blips, WebSocket disconnects, or EPUB iframe CSP violations.
+  logger.error('Unhandled error:', e?.message);
 };

@@ -12,6 +12,7 @@ import { useThemeStore } from '@/store/themeStore';
 import { useEnv } from '@/context/EnvContext';
 import { DragKey, useDrag } from '@/hooks/useDrag';
 import { TextSelection } from '@/utils/sel';
+import { usePrimaryBookHash } from '@/app/reader/hooks/usePrimaryBookHash';
 import { BookNote } from '@/types/book';
 import { uniqueId } from '@/utils/misc';
 import { eventDispatcher } from '@/utils/event';
@@ -45,7 +46,8 @@ const Notebook: React.FC = ({}) => {
     useNotebookStore();
   const { setNotebookNewAnnotation, setNotebookEditAnnotation, setNotebookActiveTab } =
     useNotebookStore();
-  const { activeConversationId } = useAIChatStore();
+  const { activeConversationId, createConversation } = useAIChatStore();
+  const { primaryBookHash, getParallelHashes } = usePrimaryBookHash(sideBarBookKey ?? '');
 
   const [isSearchBarVisible, setIsSearchBarVisible] = useState(false);
   const [searchResults, setSearchResults] = useState<BookNote[] | null>(null);
@@ -110,6 +112,10 @@ const Notebook: React.FC = ({}) => {
     const newGlobalReadSettings = { ...globalReadSettings, notebookActiveTab: tab };
     saveSysSettings(envConfig, 'globalReadSettings', newGlobalReadSettings);
   };
+
+  const handleNewAIChat = useCallback(async () => {
+    await createConversation(primaryBookHash, 'New conversation', getParallelHashes());
+  }, [createConversation, primaryBookHash, getParallelHashes]);
 
   const handleClickOverlay = () => {
     setNotebookVisible(false);
@@ -233,7 +239,7 @@ const Notebook: React.FC = ({}) => {
 
   return isNotebookVisible ? (
     <>
-      {!isNotebookPinned && (
+      {!appService?.isMobile && !isNotebookPinned && (
         <Overlay
           className={clsx('z-[45]', viewSettings?.isEink ? '' : 'bg-black/20')}
           onDismiss={handleClickOverlay}
@@ -243,29 +249,44 @@ const Notebook: React.FC = ({}) => {
         className={clsx(
           'notebook-container right-0 flex min-w-60 select-none flex-col',
           'full-height font-sans text-base font-normal sm:text-sm',
-          viewSettings?.isEink ? 'bg-base-100' : 'bg-base-200',
+          viewSettings?.isEink || appService?.isMobile ? 'bg-base-100' : 'bg-base-200',
           appService?.hasRoundedWindow && 'rounded-window-top-right rounded-window-bottom-right',
-          isNotebookPinned ? 'z-20' : 'z-[45] shadow-2xl',
+          appService?.isMobile ? 'z-50' : isNotebookPinned ? 'z-20' : 'z-[45] shadow-2xl',
           !isNotebookPinned && viewSettings?.isEink && 'border-base-content border-s',
         )}
         role='group'
         aria-label={_('Notebook')}
         dir={viewSettings?.rtl && languageDir === 'rtl' ? 'rtl' : 'ltr'}
-        style={{
-          width: `${notebookWidth}`,
-          maxWidth: `${MAX_NOTEBOOK_WIDTH * 100}%`,
-          position: isNotebookPinned ? 'relative' : 'absolute',
-          paddingTop: `${safeAreaInsets?.top || 0}px`,
-        }}
+        style={
+          appService?.isMobile
+            ? {
+                position: 'fixed' as const,
+                top: 0,
+                left: 0,
+                width: '100vw',
+                height: '100vh',
+                maxWidth: '100vw',
+                paddingTop: `${safeAreaInsets?.top || 0}px`,
+                paddingBottom: `${(safeAreaInsets?.bottom || 0) / 2}px`,
+              }
+            : {
+                width: `${notebookWidth}`,
+                maxWidth: `${MAX_NOTEBOOK_WIDTH * 100}%`,
+                position: isNotebookPinned ? 'relative' : ('absolute' as const),
+                paddingTop: `${safeAreaInsets?.top || 0}px`,
+              }
+        }
       >
-        <style jsx>{`
-          @media (max-width: 640px) {
-            .notebook-container {
-              width: 100%;
-              min-width: 100%;
+        {!appService?.isMobile && (
+          <style jsx>{`
+            @media (max-width: 640px) {
+              .notebook-container {
+                width: 100%;
+                min-width: 100%;
+              }
             }
-          }
-        `}</style>
+          `}</style>
+        )}
         <div
           className={clsx(
             'drag-bar absolute -left-2 top-0 h-full w-0.5 cursor-col-resize bg-transparent p-2',
@@ -288,6 +309,7 @@ const Notebook: React.FC = ({}) => {
             handleToggleSearchBar={handleToggleSearchBar}
             showSearchButton={notebookActiveTab === 'notes'}
             activeTab={notebookActiveTab}
+            onNewChat={handleNewAIChat}
           />
           {notebookActiveTab === 'notes' && (
             <div
@@ -393,14 +415,17 @@ const Notebook: React.FC = ({}) => {
             </ul>
           </div>
         )}
-        <div
-          className='flex-shrink-0'
-          style={{
-            paddingBottom: `${(safeAreaInsets?.bottom || 0) / 2}px`,
-          }}
-        >
-          <NotebookTabNavigation activeTab={notebookActiveTab} onTabChange={handleTabChange} />
-        </div>
+        {/* On mobile AI tab, hide tab navigation — the header handles navigation */}
+        {!(appService?.isMobile && notebookActiveTab === 'ai') && (
+          <div
+            className='flex-shrink-0'
+            style={{
+              paddingBottom: `${(safeAreaInsets?.bottom || 0) / 2}px`,
+            }}
+          >
+            <NotebookTabNavigation activeTab={notebookActiveTab} onTabChange={handleTabChange} />
+          </div>
+        )}
       </div>
     </>
   ) : null;

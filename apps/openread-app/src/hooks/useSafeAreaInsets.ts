@@ -36,10 +36,11 @@ export const useSafeAreaInsets = () => {
 
     const rootStyles = getComputedStyle(document.documentElement);
     const hasCustomProperties = rootStyles.getPropertyValue('--safe-area-inset-top');
-    const isWebView139 = /Chrome\/139/.test(navigator.userAgent);
-    // safe-area-inset-* values in css are always 0px in some versions of webview 139
-    // due to https://issues.chromium.org/issues/40699457
-    if (appService.isAndroidApp && isWebView139) {
+    // On Tauri mobile (iOS + Android), use the native bridge to read safe area
+    // insets from the OS directly. CSS env(safe-area-inset-*) may return 0 on:
+    //   - iOS WKWebView (Tauri doesn't always expose env vars correctly)
+    //   - Android WebView 139 (https://issues.chromium.org/issues/40699457)
+    if (appService.isMobile) {
       getSafeAreaInsets().then((response) => {
         if (response.error) {
           logger.error('Error getting safe area insets from native bridge:', response.error);

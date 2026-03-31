@@ -10,6 +10,7 @@ export const useTextSelector = (
   setSelection: React.Dispatch<React.SetStateAction<TextSelection | null>>,
   getAnnotationText: (range: Range) => Promise<string>,
   handleDismissPopup: () => void,
+  showDesktopNativeMenu?: (x: number, y: number) => void,
 ) => {
   const { appService } = useEnv();
   const { getView, getViewSettings } = useReaderStore();
@@ -210,13 +211,29 @@ export const useTextSelector = (
   };
 
   const handleContextmenu = (event: Event) => {
+    // On mobile, allow the native iOS/Android context menu (Copy, Writing Tools,
+    // Look Up, Translate, Share, Speak) — don't suppress it.
     if (appService?.isMobile) {
+      return;
+    }
+    if (lastPointerType.current === 'touch' || lastPointerType.current === 'pen') {
       event.preventDefault();
       event.stopPropagation();
       return false;
-    } else if (lastPointerType.current === 'touch' || lastPointerType.current === 'pen') {
+    }
+    // On desktop Tauri, show native OS context menu for mouse right-click.
+    // Coordinates must be translated from iframe-relative to window-relative
+    // since Tauri Menu.popup() positions relative to the main window.
+    if (showDesktopNativeMenu && lastPointerType.current === 'mouse') {
+      const mouseEvent = event as MouseEvent;
       event.preventDefault();
       event.stopPropagation();
+      const doc = mouseEvent.target as Node;
+      const iframe = doc?.ownerDocument?.defaultView?.frameElement;
+      const iframeRect = iframe?.getBoundingClientRect();
+      const offsetX = iframeRect?.left ?? 0;
+      const offsetY = iframeRect?.top ?? 0;
+      showDesktopNativeMenu(mouseEvent.clientX + offsetX, mouseEvent.clientY + offsetY);
       return false;
     }
     return;
