@@ -5,7 +5,8 @@ import { useLibraryStore } from '@/store/libraryStore';
 import { usePlatformSidebarStore } from '@/store/platformSidebarStore';
 import { useLibraryViewStore } from '@/store/libraryViewStore';
 import { eventDispatcher } from '@/utils/event';
-import envConfig from '@/services/environment';
+import envConfig, { getAPIBaseUrl } from '@/services/environment';
+import { fetchWithTimeout } from '@/utils/fetch';
 import { enqueueAndSync, enqueueBatchAndSync } from '@/services/sync/helpers';
 import { syncWorker, SYNC_EVENTS } from '@/services/sync/syncWorker';
 import { useBookDataStore } from '@/store/bookDataStore';
@@ -61,7 +62,8 @@ async function cleanupDeletedBook(book: Book, remainingLibrary: Book[]): Promise
     getAccessToken()
       .then((token) => {
         if (!token) return;
-        return fetch(`/api/sync?book_hash=${encodeURIComponent(book.hash)}`, {
+        const url = `${getAPIBaseUrl()}/sync?book_hash=${encodeURIComponent(book.hash)}`;
+        return fetchWithTimeout(url, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${token}` },
         }).then(async (res) => {

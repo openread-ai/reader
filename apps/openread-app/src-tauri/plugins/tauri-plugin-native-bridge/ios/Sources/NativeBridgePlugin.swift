@@ -981,10 +981,16 @@ class NativeCollectionPicker: UIViewController, UITableViewDataSource, UITableVi
 
 // MARK: - Native Selection Toolbar (Glass action bar for multi-select)
 
-class NativeSelectionToolbar: UIView {
+// MARK: - Native Selection Bar (System UIToolbar + count pill)
+// Uses system UIToolbar for automatic Liquid Glass and 44pt touch targets.
+// Count pill sits above the toolbar (no system equivalent, kept custom).
+class NativeSelectionBar: UIView {
   private weak var webView: WKWebView?
   private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
   private var countLabel: UILabel!
+  private var toolbar: UIToolbar!
+
+  private let actionNames = ["selectAll", "addToCollection", "wantToRead", "markFinished", "remove", "cancel"]
 
   init(webView: WKWebView) {
     self.webView = webView
@@ -1000,7 +1006,7 @@ class NativeSelectionToolbar: UIView {
   }
 
   private func setupView() {
-    // Attached count pill — sits above the main toolbar bar
+    // Count pill (custom — no system equivalent)
     let countPill = UIVisualEffectView()
     if #available(iOS 26.0, *) {
       countPill.effect = UIGlassEffect(style: .regular)
@@ -1010,7 +1016,6 @@ class NativeSelectionToolbar: UIView {
     countPill.layer.cornerRadius = 14
     countPill.clipsToBounds = true
     countPill.translatesAutoresizingMaskIntoConstraints = false
-    addSubview(countPill)
 
     let label = UILabel()
     label.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
@@ -1025,93 +1030,56 @@ class NativeSelectionToolbar: UIView {
       label.trailingAnchor.constraint(equalTo: countPill.contentView.trailingAnchor, constant: -12),
       label.centerYAnchor.constraint(equalTo: countPill.contentView.centerYAnchor),
     ])
-    NSLayoutConstraint.activate([
-      countPill.centerXAnchor.constraint(equalTo: centerXAnchor),
-      countPill.bottomAnchor.constraint(equalTo: topAnchor, constant: 6),
-      countPill.heightAnchor.constraint(equalToConstant: 28),
-    ])
 
-    // Main toolbar bar
-    let ev = UIVisualEffectView()
-    if #available(iOS 26.0, *) {
-      ev.effect = UIGlassEffect(style: .regular)
-    } else {
-      ev.effect = UIBlurEffect(style: .systemChromeMaterial)
-    }
-    ev.layer.cornerRadius = 28
-    ev.clipsToBounds = true
-    ev.translatesAutoresizingMaskIntoConstraints = false
-    addSubview(ev)
-    NSLayoutConstraint.activate([
-      ev.topAnchor.constraint(equalTo: topAnchor),
-      ev.bottomAnchor.constraint(equalTo: bottomAnchor),
-      ev.leadingAnchor.constraint(equalTo: leadingAnchor),
-      ev.trailingAnchor.constraint(equalTo: trailingAnchor),
-    ])
+    // System UIToolbar — automatic Liquid Glass + 44pt touch targets
+    toolbar = UIToolbar()
+    toolbar.translatesAutoresizingMaskIntoConstraints = false
 
-    // Bring count pill above the bar
-    bringSubviewToFront(countPill)
-
-    // Content stack — actions only (count is in the pill above)
-    let stack = UIStackView()
-    stack.axis = .horizontal
-    stack.distribution = .fillEqually
-    stack.alignment = .center
-    stack.spacing = 0
-    stack.translatesAutoresizingMaskIntoConstraints = false
-    ev.contentView.addSubview(stack)
-    NSLayoutConstraint.activate([
-      stack.centerYAnchor.constraint(equalTo: ev.contentView.centerYAnchor),
-      stack.leadingAnchor.constraint(equalTo: ev.contentView.leadingAnchor, constant: 12),
-      stack.trailingAnchor.constraint(equalTo: ev.contentView.trailingAnchor, constant: -12),
-    ])
-
-    // Action buttons with labels
-    let actions: [(icon: String, title: String, action: String, destructive: Bool)] = [
-      ("checkmark.square", "Select All", "selectAll", false),
-      ("folder.badge.plus", "Collection", "addToCollection", false),
-      ("bookmark", "Want to Read", "wantToRead", false),
-      ("checkmark.circle", "Finished", "markFinished", false),
-      ("trash", "Remove", "remove", true),
-      ("xmark", "Cancel", "cancel", false),
+    let actions: [(icon: String, title: String, destructive: Bool)] = [
+      ("checkmark.square", "Select All", false),
+      ("folder.badge.plus", "Collection", false),
+      ("bookmark", "Want to Read", false),
+      ("checkmark.circle", "Finished", false),
+      ("trash", "Remove", true),
+      ("xmark", "Cancel", false),
     ]
 
+    var barItems: [UIBarButtonItem] = []
     for (index, item) in actions.enumerated() {
-      // Vertical stack: icon on top, label below
-      let itemStack = UIStackView()
-      itemStack.axis = .vertical
-      itemStack.alignment = .center
-      itemStack.spacing = 2
-
-      let btn = UIButton(type: .system)
-      let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-      btn.setImage(UIImage(systemName: item.icon)?.withConfiguration(config), for: .normal)
-      btn.tintColor = item.destructive ? .systemRed : .secondaryLabel
-      btn.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
-      btn.tag = index
-      btn.accessibilityLabel = item.title
-      NSLayoutConstraint.activate([
-        btn.widthAnchor.constraint(equalToConstant: 36),
-        btn.heightAnchor.constraint(equalToConstant: 28),
-      ])
-
-      let titleLabel = UILabel()
-      titleLabel.text = item.title
-      titleLabel.font = UIFont.systemFont(ofSize: 7, weight: .medium)
-      titleLabel.textColor = item.destructive ? .systemRed : .tertiaryLabel
-      titleLabel.textAlignment = .center
-      titleLabel.numberOfLines = 1
-
-      itemStack.addArrangedSubview(btn)
-      itemStack.addArrangedSubview(titleLabel)
-
-      stack.addArrangedSubview(itemStack)
+      if index > 0 {
+        barItems.append(UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil))
+      }
+      let barButton = UIBarButtonItem(
+        image: UIImage(systemName: item.icon)?.withConfiguration(
+          UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        ),
+        style: .plain,
+        target: self,
+        action: #selector(actionTapped(_:))
+      )
+      barButton.tag = index
+      barButton.tintColor = item.destructive ? .systemRed : nil
+      barButton.accessibilityLabel = item.title
+      barItems.append(barButton)
     }
+    toolbar.setItems(barItems, animated: false)
+
+    addSubview(toolbar)
+    addSubview(countPill)
+
+    NSLayoutConstraint.activate([
+      toolbar.leadingAnchor.constraint(equalTo: leadingAnchor),
+      toolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
+      toolbar.bottomAnchor.constraint(equalTo: bottomAnchor),
+      toolbar.topAnchor.constraint(equalTo: topAnchor, constant: 20),
+
+      countPill.centerXAnchor.constraint(equalTo: centerXAnchor),
+      countPill.bottomAnchor.constraint(equalTo: toolbar.topAnchor, constant: 6),
+      countPill.heightAnchor.constraint(equalToConstant: 28),
+    ])
   }
 
-  private let actionNames = ["selectAll", "addToCollection", "wantToRead", "markFinished", "remove", "cancel"]
-
-  @objc private func actionTapped(_ sender: UIButton) {
+  @objc private func actionTapped(_ sender: UIBarButtonItem) {
     feedbackGenerator.impactOccurred()
     let action = actionNames[sender.tag]
 
@@ -1125,15 +1093,11 @@ class NativeSelectionToolbar: UIView {
     }
   }
 
-  private func topViewController() -> UIViewController? {
-    guard let vc = webView?.window?.rootViewController else { return nil }
+  private func showRemoveConfirmation() {
+    guard let vc = webView?.window?.rootViewController else { return }
     var topVC = vc
     while let presented = topVC.presentedViewController { topVC = presented }
-    return topVC
-  }
 
-  private func showRemoveConfirmation() {
-    guard let topVC = topViewController() else { return }
     let alert = UIAlertController(
       title: "Remove Selected Books",
       message: "Are you sure you want to remove the selected books? This cannot be undone.",
@@ -1147,7 +1111,6 @@ class NativeSelectionToolbar: UIView {
   }
 
   private func showCollectionAlert() {
-    // Tell JS to gather collections data and open native picker
     webView?.evaluateJavaScript("window.__nativeSelectionAction?.('openCollectionPicker')") { _, _ in }
   }
 }
@@ -1155,129 +1118,68 @@ class NativeSelectionToolbar: UIView {
 // MARK: - Native Toolbar (Home Page — Liquid Glass)
 // Hamburger button + "OpenRead" badge, positioned at top of screen.
 
-class NativeHomeToolbar: UIView {
+// MARK: - Native Home Navigation Bar (System UINavigationBar)
+// Uses system UINavigationBar for automatic Liquid Glass. Switches between home and collections mode.
+class NativeHomeNavBar: UINavigationBar {
   private weak var webView: WKWebView?
   private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
-  private var badgeBtn: UIButton!
-  private var searchBtn: UIButton!
-  private var plusBtn: UIButton!
-  private var rightStack: UIStackView!
   private var isCollectionsMode = false
+  private var homeItem: UINavigationItem!
+  private var collectionsItem: UINavigationItem!
 
   init(webView: WKWebView) {
     self.webView = webView
     super.init(frame: .zero)
     feedbackGenerator.prepare()
-    setupView()
+    setupItems()
   }
 
   required init?(coder: NSCoder) { fatalError() }
 
-  /// Switch between home mode (OPENREAD badge) and collections mode (COLLECTIONS + search + plus)
   func setCollectionsMode(_ enabled: Bool) {
     guard enabled != isCollectionsMode else { return }
     isCollectionsMode = enabled
-    rightStack.isHidden = !enabled
-
-    let title = enabled ? "COLLECTIONS" : "OPENREAD"
-    if #available(iOS 26.0, *) {
-      var config = UIButton.Configuration.glass()
-      var attr = AttributedString(title)
-      attr.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
-      attr.kern = 1.5
-      config.attributedTitle = attr
-      config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18)
-      badgeBtn.configuration = config
-    } else {
-      badgeBtn.setTitle(title, for: .normal)
-    }
+    items = [enabled ? collectionsItem : homeItem]
   }
 
-  private func makeGlassCircleButton(icon: String) -> UIButton {
-    let btn = UIButton(type: .system)
-    btn.translatesAutoresizingMaskIntoConstraints = false
-    if #available(iOS 26.0, *) {
-      var config = UIButton.Configuration.glass()
-      config.image = UIImage(systemName: icon)?
-        .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .medium))
-      config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
-      btn.configuration = config
-    } else {
-      btn.setImage(
-        UIImage(systemName: icon)?
-          .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)),
-        for: .normal
-      )
-      btn.tintColor = .label
-      btn.backgroundColor = UIColor.systemGray5
-    }
-    btn.layer.cornerRadius = 20
-    btn.clipsToBounds = true
-    NSLayoutConstraint.activate([
-      btn.widthAnchor.constraint(equalToConstant: 40),
-      btn.heightAnchor.constraint(equalToConstant: 40),
-    ])
-    return btn
-  }
+  private func setupItems() {
+    prefersLargeTitles = false
 
-  private func setupView() {
-    // Hamburger button — glass circle (40×40)
-    let menuBtn = makeGlassCircleButton(icon: "line.3.horizontal")
-    menuBtn.addTarget(self, action: #selector(menuTapped), for: .touchUpInside)
+    // Title styling — small caps tracking to match the badge aesthetic
+    let appearance = UINavigationBarAppearance()
+    appearance.configureWithTransparentBackground()
+    appearance.titleTextAttributes = [
+      .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
+      .kern: 1.5 as NSNumber,
+    ]
+    standardAppearance = appearance
+    scrollEdgeAppearance = appearance
 
-    // Center badge — glass pill (40pt height, matches buttons)
-    badgeBtn = UIButton(type: .system)
-    badgeBtn.translatesAutoresizingMaskIntoConstraints = false
-    badgeBtn.isUserInteractionEnabled = false
-    if #available(iOS 26.0, *) {
-      var config = UIButton.Configuration.glass()
-      var attr = AttributedString("OPENREAD")
-      attr.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
-      attr.kern = 1.5
-      config.attributedTitle = attr
-      config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18)
-      badgeBtn.configuration = config
-    } else {
-      badgeBtn.setTitle("OPENREAD", for: .normal)
-      badgeBtn.titleLabel?.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
-      badgeBtn.setTitleColor(.secondaryLabel, for: .normal)
-      badgeBtn.backgroundColor = UIColor.systemGray5
-    }
-    badgeBtn.layer.cornerRadius = 20
-    badgeBtn.clipsToBounds = true
-    NSLayoutConstraint.activate([
-      badgeBtn.heightAnchor.constraint(equalToConstant: 40),
-    ])
+    // Home mode: hamburger left, "OPENREAD" center title
+    homeItem = UINavigationItem(title: "OPENREAD")
+    homeItem.leftBarButtonItem = UIBarButtonItem(
+      image: UIImage(systemName: "line.3.horizontal"),
+      style: .plain, target: self, action: #selector(menuTapped)
+    )
 
-    // Search button — glass circle (40×40), collections mode only
-    searchBtn = makeGlassCircleButton(icon: "magnifyingglass")
-    searchBtn.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
+    // Collections mode: hamburger left, "COLLECTIONS" center, search + plus right
+    collectionsItem = UINavigationItem(title: "COLLECTIONS")
+    collectionsItem.leftBarButtonItem = UIBarButtonItem(
+      image: UIImage(systemName: "line.3.horizontal"),
+      style: .plain, target: self, action: #selector(menuTapped)
+    )
+    collectionsItem.rightBarButtonItems = [
+      UIBarButtonItem(
+        image: UIImage(systemName: "plus"),
+        style: .plain, target: self, action: #selector(plusTapped)
+      ),
+      UIBarButtonItem(
+        image: UIImage(systemName: "magnifyingglass"),
+        style: .plain, target: self, action: #selector(searchTapped)
+      ),
+    ]
 
-    // Plus button — glass circle (40×40), collections mode only
-    plusBtn = makeGlassCircleButton(icon: "plus")
-    plusBtn.addTarget(self, action: #selector(plusTapped), for: .touchUpInside)
-
-    // Right button stack (search + plus), hidden in home mode
-    rightStack = UIStackView(arrangedSubviews: [searchBtn, plusBtn])
-    rightStack.axis = .horizontal
-    rightStack.spacing = 8
-    rightStack.translatesAutoresizingMaskIntoConstraints = false
-    rightStack.isHidden = true
-
-    addSubview(menuBtn)
-    addSubview(badgeBtn)
-    addSubview(rightStack)
-
-    NSLayoutConstraint.activate([
-      menuBtn.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-      menuBtn.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-      badgeBtn.centerXAnchor.constraint(equalTo: centerXAnchor),
-      badgeBtn.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-      rightStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-      rightStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-    ])
+    pushItem(homeItem, animated: false)
   }
 
   @objc private func menuTapped() {
@@ -1296,9 +1198,9 @@ class NativeHomeToolbar: UIView {
   }
 }
 
-// MARK: - Native Collection Toolbar (Liquid Glass)
-// Shows on collection detail: ← Collections | ⋮ kebab (name shown in web content below)
-class NativeCollectionToolbar: UIView {
+// MARK: - Native Collection Navigation Bar (System UINavigationBar)
+// Shows on collection detail: ← Collections | ⋮ kebab with rename/delete
+class NativeCollectionNavBar: UINavigationBar {
   private weak var webView: WKWebView?
   private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
   private var collectionName: String = ""
@@ -1308,7 +1210,7 @@ class NativeCollectionToolbar: UIView {
     self.webView = webView
     super.init(frame: .zero)
     feedbackGenerator.prepare()
-    setupView()
+    setupItems()
   }
 
   required init?(coder: NSCoder) { fatalError() }
@@ -1318,84 +1220,42 @@ class NativeCollectionToolbar: UIView {
     collectionId = id
   }
 
-  private func setupView() {
-    // ← Collections button (glass pill) — matches hamburger height (40pt)
-    let backBtn = UIButton(type: .system)
-    backBtn.translatesAutoresizingMaskIntoConstraints = false
-    if #available(iOS 26.0, *) {
-      var config = UIButton.Configuration.glass()
-      config.image = UIImage(systemName: "chevron.left")?
-        .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold))
-      var attr = AttributedString("Collections")
-      attr.font = UIFont.systemFont(ofSize: 14, weight: .medium)
-      config.attributedTitle = attr
-      config.imagePadding = 4
-      config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 16)
-      backBtn.configuration = config
-    } else {
-      backBtn.setImage(
-        UIImage(systemName: "chevron.left")?
-          .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)),
-        for: .normal
-      )
-      backBtn.setTitle(" Collections", for: .normal)
-      backBtn.titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .medium)
-      backBtn.tintColor = .label
-      backBtn.backgroundColor = UIColor.systemGray5
-    }
-    backBtn.layer.cornerRadius = 20
-    backBtn.clipsToBounds = true
-    backBtn.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
-    NSLayoutConstraint.activate([
-      backBtn.heightAnchor.constraint(equalToConstant: 40),
-    ])
+  private func setupItems() {
+    prefersLargeTitles = false
 
-    // Kebab button (glass circle) — same size as hamburger (40×40, icon 16pt)
-    let kebabBtn = UIButton(type: .system)
-    kebabBtn.translatesAutoresizingMaskIntoConstraints = false
-    if #available(iOS 26.0, *) {
-      var config = UIButton.Configuration.glass()
-      config.image = UIImage(systemName: "ellipsis")?
-        .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .medium))
-      config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
-      kebabBtn.configuration = config
-    } else {
-      kebabBtn.setImage(
-        UIImage(systemName: "ellipsis")?
-          .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)),
-        for: .normal
-      )
-      kebabBtn.tintColor = .label
-      kebabBtn.backgroundColor = UIColor.systemGray5
-    }
-    kebabBtn.layer.cornerRadius = 20
-    kebabBtn.clipsToBounds = true
-    kebabBtn.showsMenuAsPrimaryAction = true
-    kebabBtn.menu = UIMenu(children: [
-      UIAction(title: "Rename", image: UIImage(systemName: "pencil")) { [weak self] _ in
-        self?.feedbackGenerator.impactOccurred()
-        self?.handleRename()
-      },
-      UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
-        self?.feedbackGenerator.impactOccurred()
-        self?.handleDelete()
-      },
-    ])
-    NSLayoutConstraint.activate([
-      kebabBtn.widthAnchor.constraint(equalToConstant: 40),
-      kebabBtn.heightAnchor.constraint(equalToConstant: 40),
-    ])
+    let appearance = UINavigationBarAppearance()
+    appearance.configureWithTransparentBackground()
+    standardAppearance = appearance
+    scrollEdgeAppearance = appearance
 
-    addSubview(backBtn)
-    addSubview(kebabBtn)
+    let navItem = UINavigationItem(title: "")
 
-    NSLayoutConstraint.activate([
-      backBtn.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-      backBtn.centerYAnchor.constraint(equalTo: centerYAnchor),
+    // Back button — ← Collections
+    let backBtn = UIBarButtonItem(
+      image: UIImage(systemName: "chevron.left"),
+      style: .plain,
+      target: self,
+      action: #selector(backTapped)
+    )
+    backBtn.title = "Collections"
+    navItem.leftBarButtonItem = backBtn
 
-      kebabBtn.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-      kebabBtn.centerYAnchor.constraint(equalTo: centerYAnchor),
-    ])
+    // Kebab — UIMenu with Rename + Delete
+    navItem.rightBarButtonItem = UIBarButtonItem(
+      image: UIImage(systemName: "ellipsis"),
+      menu: UIMenu(children: [
+        UIAction(title: "Rename", image: UIImage(systemName: "pencil")) { [weak self] _ in
+          self?.feedbackGenerator.impactOccurred()
+          self?.handleRename()
+        },
+        UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+          self?.feedbackGenerator.impactOccurred()
+          self?.handleDelete()
+        },
+      ])
+    )
+
+    pushItem(navItem, animated: false)
   }
 
   @objc private func backTapped() {
@@ -1447,135 +1307,54 @@ class NativeCollectionToolbar: UIView {
   }
 }
 
-// MARK: - Native Footer Bar (Liquid Glass)
-// 3 tab buttons (TOC, Chat, Settings) with system blur material.
-class NativeFooterBar: UIView {
-  private let barHeight: CGFloat = 56
-  private let iconSize: CGFloat = 22
-  private let pillSize: CGFloat = 42
+// MARK: - Native Footer Tab Bar (System UITabBar)
+// Uses system UITabBar for automatic Liquid Glass, selection indicator, and 44pt touch targets.
+class NativeFooterTabBar: UITabBar, UITabBarDelegate {
   private weak var webView: WKWebView?
-  private var buttons: [UIButton] = []
-  private var activeIndex: Int = -1
   private let actions = ["toc", "chat", "settings"]
-  var glassEffectView: UIVisualEffectView!
-
-  private let items: [(icon: String, action: String)] = [
-    ("list.bullet", "toc"),
-    ("bubble.left.and.bubble.right", "chat"),
-    ("gearshape", "settings"),
-  ]
+  private var previousTag: Int = -1
 
   init(webView: WKWebView) {
     self.webView = webView
     super.init(frame: .zero)
-    setupView()
+    delegate = self
+    setupItems()
   }
 
   required init?(coder: NSCoder) { fatalError() }
 
-  private func setupView() {
-    let ev = UIVisualEffectView()
-    if #available(iOS 26.0, *) {
-      let glass = UIGlassEffect(style: .regular)
-      glass.isInteractive = true
-      ev.effect = glass
-    } else {
-      ev.effect = UIBlurEffect(style: .systemChromeMaterial)
-    }
-    ev.layer.cornerRadius = barHeight / 2
-    ev.clipsToBounds = true
-    ev.translatesAutoresizingMaskIntoConstraints = false
-    addSubview(ev)
-    NSLayoutConstraint.activate([
-      ev.topAnchor.constraint(equalTo: topAnchor),
-      ev.bottomAnchor.constraint(equalTo: bottomAnchor),
-      ev.leadingAnchor.constraint(equalTo: leadingAnchor),
-      ev.trailingAnchor.constraint(equalTo: trailingAnchor),
-    ])
-    glassEffectView = ev
-
-    layer.cornerRadius = barHeight / 2
-    if #unavailable(iOS 26) {
-      layer.borderWidth = 1.0 / UIScreen.main.scale
-      layer.borderColor = UIColor.separator.withAlphaComponent(0.2).cgColor
-      layer.shadowColor = UIColor.black.cgColor
-      layer.shadowOpacity = 0.12
-      layer.shadowRadius = 12
-      layer.shadowOffset = CGSize(width: 0, height: 4)
-    }
-
-    let stack = UIStackView()
-    stack.axis = .horizontal
-    stack.distribution = .equalSpacing
-    stack.alignment = .center
-    stack.translatesAutoresizingMaskIntoConstraints = false
-    ev.contentView.addSubview(stack)
-    NSLayoutConstraint.activate([
-      stack.centerYAnchor.constraint(equalTo: ev.contentView.centerYAnchor),
-      stack.leadingAnchor.constraint(equalTo: ev.contentView.leadingAnchor, constant: 20),
-      stack.trailingAnchor.constraint(equalTo: ev.contentView.trailingAnchor, constant: -20),
-    ])
-
-    for (i, item) in items.enumerated() {
-      let btn = UIButton(type: .system)
-      btn.tag = i
-      let image = UIImage(systemName: item.icon)?.withConfiguration(
-        UIImage.SymbolConfiguration(pointSize: iconSize, weight: .medium)
-      )
-      btn.setImage(image, for: .normal)
-      btn.tintColor = .secondaryLabel
-      btn.translatesAutoresizingMaskIntoConstraints = false
-      btn.addTarget(self, action: #selector(tabTouchDown(_:)), for: .touchDown)
-      btn.addTarget(self, action: #selector(tabTouchUp(_:)), for: [.touchUpInside, .touchUpOutside, .touchCancel])
-      btn.addTarget(self, action: #selector(tabTapped(_:)), for: .touchUpInside)
-      NSLayoutConstraint.activate([
-        btn.widthAnchor.constraint(equalToConstant: pillSize),
-        btn.heightAnchor.constraint(equalToConstant: pillSize),
-      ])
-      stack.addArrangedSubview(btn)
-      buttons.append(btn)
-    }
+  private func setupItems() {
+    items = [
+      UITabBarItem(title: nil, image: UIImage(systemName: "list.bullet"), tag: 0),
+      UITabBarItem(title: nil, image: UIImage(systemName: "bubble.left.and.bubble.right"), tag: 1),
+      UITabBarItem(title: nil, image: UIImage(systemName: "gearshape"), tag: 2),
+    ]
   }
 
-  @objc private func tabTouchDown(_ sender: UIButton) {
-    // Scale up with spring — the "glass bubble" press effect
-    UIView.animate(withDuration: 0.15, delay: 0, options: .curveEaseOut) {
-      sender.transform = CGAffineTransform(scaleX: 1.25, y: 1.25)
-    }
-  }
-
-  @objc private func tabTouchUp(_ sender: UIButton) {
-    // Spring back to normal
-    UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.5, initialSpringVelocity: 0.8) {
-      sender.transform = .identity
-    }
-  }
-
-  @objc private func tabTapped(_ sender: UIButton) {
+  func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-    let tappedIndex = sender.tag
-    let newIndex = tappedIndex == activeIndex ? -1 : tappedIndex
-    updateActiveIndex(newIndex)
-    webView?.evaluateJavaScript("window.__nativeFooterAction?.('\(actions[sender.tag])')") { _, _ in }
+    let action = actions[item.tag]
+    // Toggle: tapping the active tab deselects it
+    if item.tag == previousTag {
+      selectedItem = nil
+      previousTag = -1
+    } else {
+      previousTag = item.tag
+    }
+    webView?.evaluateJavaScript("window.__nativeFooterAction?.('\(action)')") { _, _ in }
   }
 
   func setActiveTab(_ tab: String) {
     if let index = actions.firstIndex(of: tab) {
-      updateActiveIndex(index)
+      selectedItem = items?[index]
+      previousTag = index
     }
   }
 
   func resetSelection() {
-    updateActiveIndex(-1)
+    selectedItem = nil
+    previousTag = -1
   }
-
-  private func updateActiveIndex(_ index: Int) {
-    activeIndex = index
-    for (i, btn) in buttons.enumerated() {
-      btn.tintColor = i == index ? .tintColor : .secondaryLabel
-    }
-  }
-
 }
 
 // MARK: - Custom Edit Menu Items for WKWebView Text Selection
@@ -1606,10 +1385,10 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
   private var originalDelegate: UIApplicationDelegate?
   private var webViewLifecycleManager: WebViewLifecycleManager?
   private var colorPicker: NativeColorPicker?
-  private var footerBar: NativeFooterBar?
-  private var homeToolbar: NativeHomeToolbar?
-  private var collectionToolbar: NativeCollectionToolbar?
-  private var selectionToolbar: NativeSelectionToolbar?
+  private var footerBar: NativeFooterTabBar?
+  private var homeToolbar: NativeHomeNavBar?
+  private var collectionToolbar: NativeCollectionNavBar?
+  private var selectionToolbar: NativeSelectionBar?
   private var sidebarCloseButton: UIButton?
   private var urlObservation: NSKeyValueObservation?
 
@@ -1637,15 +1416,10 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
     topVC.present(alert, animated: true)
   }
 
-  /// Show footer bar with horizontal expand animation (matches chat bar shrink).
+  /// Show footer tab bar with scale-up animation (syncs with question bar shrink).
   private func showFooterBar() {
-    footerBar?.transform = CGAffineTransform(scaleX: 0.01, y: 1)
+    footerBar?.transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
     footerBar?.alpha = 1
-    if #available(iOS 26.0, *) {
-      let glass = UIGlassEffect(style: .regular)
-      glass.isInteractive = true
-      footerBar?.glassEffectView.effect = glass
-    }
     UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.5) {
       self.footerBar?.transform = .identity
     }
@@ -1672,7 +1446,7 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
         btn.tintColor = .label
         btn.backgroundColor = UIColor.systemGray5
       }
-      btn.layer.cornerRadius = 20
+      btn.layer.cornerRadius = 22
       btn.clipsToBounds = true
       btn.addTarget(self, action: #selector(sidebarCloseTapped), for: .touchUpInside)
       parent.addSubview(btn)
@@ -1680,8 +1454,8 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
       NSLayoutConstraint.activate([
         btn.leadingAnchor.constraint(equalTo: parent.leadingAnchor, constant: 16),
         btn.topAnchor.constraint(equalTo: parent.topAnchor, constant: topPadding),
-        btn.widthAnchor.constraint(equalToConstant: 40),
-        btn.heightAnchor.constraint(equalToConstant: 40),
+        btn.widthAnchor.constraint(equalToConstant: 44),
+        btn.heightAnchor.constraint(equalToConstant: 44),
       ])
       sidebarCloseButton = btn
     }
@@ -1701,16 +1475,13 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
     webView?.evaluateJavaScript("window.__nativeSidebarClose?.()") { _, _ in }
   }
 
-  /// Hide footer bar with horizontal shrink animation (matches chat bar expand).
+  /// Hide footer tab bar with scale-down animation (syncs with question bar expand).
   private func hideFooterBar() {
     UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseIn, animations: {
-      self.footerBar?.transform = CGAffineTransform(scaleX: 0.01, y: 1)
+      self.footerBar?.transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
     }) { _ in
       self.footerBar?.alpha = 0
       self.footerBar?.transform = .identity
-      if #available(iOS 26.0, *) {
-        self.footerBar?.glassEffectView.effect = nil
-      }
     }
     footerBar?.resetSelection()
   }
@@ -1892,42 +1663,38 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
     self.colorPicker = picker
     logger.log("NativeBridgePlugin: Native color picker created")
 
-    // Native home toolbar (glass hamburger + OpenRead badge)
-    let toolbar = NativeHomeToolbar(webView: webview)
-    toolbar.translatesAutoresizingMaskIntoConstraints = false
-    toolbar.alpha = 0  // Hidden until a platform page loads
+    // System UINavigationBar — automatic Liquid Glass, handles orientation
+    let navBar = NativeHomeNavBar(webView: webview)
+    navBar.translatesAutoresizingMaskIntoConstraints = false
+    navBar.alpha = 0  // Hidden until a platform page loads
     if let parent = webview.superview {
-      parent.addSubview(toolbar)
-      let topPadding: CGFloat = parent.safeAreaInsets.top + 8
+      parent.addSubview(navBar)
       NSLayoutConstraint.activate([
-        toolbar.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
-        toolbar.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
-        toolbar.topAnchor.constraint(equalTo: parent.topAnchor, constant: topPadding),
-        toolbar.heightAnchor.constraint(equalToConstant: 44),
+        navBar.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+        navBar.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
+        navBar.topAnchor.constraint(equalTo: parent.safeAreaLayoutGuide.topAnchor),
       ])
     }
-    self.homeToolbar = toolbar
-    logger.log("NativeBridgePlugin: Native home toolbar created")
+    self.homeToolbar = navBar
+    logger.log("NativeBridgePlugin: System UINavigationBar home toolbar created")
 
-    // Native collection detail toolbar (← Collections | Name | ⋮)
-    let colToolbar = NativeCollectionToolbar(webView: webview)
-    colToolbar.translatesAutoresizingMaskIntoConstraints = false
-    colToolbar.alpha = 0  // Hidden until collection detail view
+    // System UINavigationBar for collection detail (← Collections | ⋮ kebab)
+    let colNavBar = NativeCollectionNavBar(webView: webview)
+    colNavBar.translatesAutoresizingMaskIntoConstraints = false
+    colNavBar.alpha = 0  // Hidden until collection detail view
     if let parent = webview.superview {
-      parent.addSubview(colToolbar)
-      let topPadding: CGFloat = parent.safeAreaInsets.top + 8
+      parent.addSubview(colNavBar)
       NSLayoutConstraint.activate([
-        colToolbar.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
-        colToolbar.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
-        colToolbar.topAnchor.constraint(equalTo: parent.topAnchor, constant: topPadding),
-        colToolbar.heightAnchor.constraint(equalToConstant: 44),
+        colNavBar.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+        colNavBar.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
+        colNavBar.topAnchor.constraint(equalTo: parent.safeAreaLayoutGuide.topAnchor),
       ])
     }
-    self.collectionToolbar = colToolbar
-    logger.log("NativeBridgePlugin: Native collection toolbar created")
+    self.collectionToolbar = colNavBar
+    logger.log("NativeBridgePlugin: System UINavigationBar collection toolbar created")
 
-    // Native selection toolbar (multi-select actions)
-    let selToolbar = NativeSelectionToolbar(webView: webview)
+    // System UIToolbar for multi-select actions + count pill
+    let selToolbar = NativeSelectionBar(webView: webview)
     selToolbar.translatesAutoresizingMaskIntoConstraints = false
     selToolbar.alpha = 0  // Hidden until select mode
     if let parent = webview.superview {
@@ -1975,22 +1742,20 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
       updateVisibility(webView)
     }
 
-    // Native footer bar
-    let footer = NativeFooterBar(webView: webview)
+    // System UITabBar — full width, automatic Liquid Glass + selection indicator
+    let footer = NativeFooterTabBar(webView: webview)
     footer.translatesAutoresizingMaskIntoConstraints = false
     footer.alpha = 0  // Hidden until web tells us to show
     if let parent = webview.superview {
       parent.addSubview(footer)
-      let bottomPadding: CGFloat = parent.safeAreaInsets.bottom > 0 ? parent.safeAreaInsets.bottom - 10 : 8
       NSLayoutConstraint.activate([
-        footer.centerXAnchor.constraint(equalTo: parent.centerXAnchor),
-        footer.widthAnchor.constraint(equalToConstant: 220),
-        footer.bottomAnchor.constraint(equalTo: parent.bottomAnchor, constant: -bottomPadding),
-        footer.heightAnchor.constraint(equalToConstant: 56),
+        footer.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+        footer.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
+        footer.bottomAnchor.constraint(equalTo: parent.bottomAnchor),
       ])
     }
     self.footerBar = footer
-    logger.log("NativeBridgePlugin: Native footer bar created")
+    logger.log("NativeBridgePlugin: System UITabBar footer created")
 
     webViewLifecycleManager = WebViewLifecycleManager()
     webViewLifecycleManager?.startMonitoring(webView: webview)
