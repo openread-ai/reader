@@ -67,12 +67,59 @@ describe('useFeatureFlags', () => {
       });
 
       expect(result.current.plan).toBe('free');
-      expect(result.current.flags.cloudSync).toBe(true); // Basic sync is free
+      // Tier-gate driven flags
+      expect(result.current.flags.canTTS).toBe(false);
+      expect(result.current.flags.cloudSync).toBe(false);
+      expect(result.current.flags.canTranslate).toBe(false);
+      expect(result.current.flags.canBYOK).toBe(false);
+      expect(result.current.flags.canBoost).toBe(false);
+      // Limit-based flags
       expect(result.current.flags.aiAnalysis).toBe(false);
       expect(result.current.flags.knowledgeGraph).toBe(false);
       expect(result.current.flags.marketplace).toBe(false);
       expect(result.current.flags.maxBooks).toBe(50);
       expect(result.current.flags.maxCloudStorage).toBe(500 * 1024 * 1024); // 500MB
+    });
+
+    it('should return false for canTTS', async () => {
+      const { result } = renderHook(() => useFeatureFlags());
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.canTTS()).toBe(false);
+    });
+
+    it('should return false for canTranslate', async () => {
+      const { result } = renderHook(() => useFeatureFlags());
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.canTranslate()).toBe(false);
+    });
+
+    it('should return false for canBYOK', async () => {
+      const { result } = renderHook(() => useFeatureFlags());
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.canBYOK()).toBe(false);
+    });
+
+    it('should return false for canSync (tier-gated, not just auth)', async () => {
+      const { result } = renderHook(() => useFeatureFlags());
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Free tier: can_sync is false, so canSync() is false even if authenticated
+      expect(result.current.canSync()).toBe(false);
     });
 
     it('should return false for canAnalyze', async () => {
@@ -83,16 +130,6 @@ describe('useFeatureFlags', () => {
       });
 
       expect(result.current.canAnalyze()).toBe(false);
-    });
-
-    it('should return true for canSync when authenticated', async () => {
-      const { result } = renderHook(() => useFeatureFlags());
-
-      await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
-      });
-
-      expect(result.current.canSync()).toBe(true);
     });
 
     it('should correctly check book limit', async () => {
@@ -108,26 +145,72 @@ describe('useFeatureFlags', () => {
     });
   });
 
-  describe('plus tier user', () => {
+  describe('reader tier user', () => {
     beforeEach(() => {
       mockUser = { id: 'user-1' };
-      mockUserProfilePlan = 'plus';
+      mockUserProfilePlan = 'reader';
     });
 
-    it('should return plus tier flags', async () => {
+    it('should return reader tier flags', async () => {
       const { result } = renderHook(() => useFeatureFlags());
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      expect(result.current.plan).toBe('plus');
+      expect(result.current.plan).toBe('reader');
+      // Tier-gate driven flags
+      expect(result.current.flags.canTTS).toBe(true);
       expect(result.current.flags.cloudSync).toBe(true);
+      expect(result.current.flags.canTranslate).toBe(false);
+      expect(result.current.flags.canBYOK).toBe(true);
+      expect(result.current.flags.canBoost).toBe(true);
+      // Limit-based flags
       expect(result.current.flags.aiAnalysis).toBe(true);
       expect(result.current.flags.knowledgeGraph).toBe(false);
       expect(result.current.flags.marketplace).toBe(true);
       expect(result.current.flags.maxBooks).toBe(500);
       expect(result.current.flags.maxCloudStorage).toBe(5 * 1024 * 1024 * 1024); // 5GB
+    });
+
+    it('should return true for canTTS', async () => {
+      const { result } = renderHook(() => useFeatureFlags());
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.canTTS()).toBe(true);
+    });
+
+    it('should return false for canTranslate (reader has no translation)', async () => {
+      const { result } = renderHook(() => useFeatureFlags());
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.canTranslate()).toBe(false);
+    });
+
+    it('should return true for canBYOK', async () => {
+      const { result } = renderHook(() => useFeatureFlags());
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.canBYOK()).toBe(true);
+    });
+
+    it('should return true for canSync', async () => {
+      const { result } = renderHook(() => useFeatureFlags());
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.canSync()).toBe(true);
     });
 
     it('should return true for canAnalyze', async () => {
@@ -155,13 +238,29 @@ describe('useFeatureFlags', () => {
       });
 
       expect(result.current.plan).toBe('pro');
+      // Tier-gate driven flags - all true for pro
+      expect(result.current.flags.canTTS).toBe(true);
       expect(result.current.flags.cloudSync).toBe(true);
+      expect(result.current.flags.canTranslate).toBe(true);
+      expect(result.current.flags.canBYOK).toBe(true);
+      expect(result.current.flags.canBoost).toBe(true);
+      // Limit-based flags
       expect(result.current.flags.aiAnalysis).toBe(true);
       expect(result.current.flags.knowledgeGraph).toBe(true);
       expect(result.current.flags.marketplace).toBe(true);
       expect(result.current.flags.maxBooks).toBe(Infinity);
       expect(result.current.flags.maxCloudStorage).toBe(20 * 1024 * 1024 * 1024); // 20GB
       expect(result.current.flags.prioritySupport).toBe(true);
+    });
+
+    it('should return true for canTranslate (pro only)', async () => {
+      const { result } = renderHook(() => useFeatureFlags());
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.canTranslate()).toBe(true);
     });
 
     it('should return true for canUseKnowledgeGraph', async () => {
@@ -186,23 +285,24 @@ describe('useFeatureFlags', () => {
     });
   });
 
-  describe('purchase tier user', () => {
+  describe('unknown plan falls back to free', () => {
     beforeEach(() => {
       mockUser = { id: 'user-1' };
-      mockUserProfilePlan = 'purchase';
+      // Simulate an unknown plan value (e.g. legacy 'purchase') from token
+      mockUserProfilePlan = 'bogus' as UserPlan;
     });
 
-    it('should return purchase tier flags (similar to free)', async () => {
+    it('should return free tier flags for unknown plan', async () => {
       const { result } = renderHook(() => useFeatureFlags());
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      expect(result.current.plan).toBe('purchase');
-      // Purchase tier has same features as free, just extra storage
       expect(result.current.flags.aiAnalysis).toBe(false);
       expect(result.current.flags.knowledgeGraph).toBe(false);
+      expect(result.current.flags.canTTS).toBe(false);
+      expect(result.current.flags.cloudSync).toBe(false);
     });
   });
 
@@ -294,9 +394,23 @@ describe('useCanSync', () => {
     expect(result.current.canSync).toBe(false);
   });
 
-  it('should return true when authenticated', async () => {
+  it('should return false for free authenticated user (tier-gated)', async () => {
     mockUser = { id: 'user-1' };
     mockUserProfilePlan = 'free';
+
+    const { result } = renderHook(() => useCanSync());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    // Free tier: can_sync is false
+    expect(result.current.canSync).toBe(false);
+  });
+
+  it('should return true for reader user', async () => {
+    mockUser = { id: 'user-1' };
+    mockUserProfilePlan = 'reader';
 
     const { result } = renderHook(() => useCanSync());
 
@@ -349,9 +463,9 @@ describe('useCanUseKnowledgeGraph', () => {
     mockUserProfilePlan = undefined;
   });
 
-  it('should return false for plus users', async () => {
+  it('should return false for reader users', async () => {
     mockUser = { id: 'user-1' };
-    mockUserProfilePlan = 'plus';
+    mockUserProfilePlan = 'reader';
 
     const { result } = renderHook(() => useCanUseKnowledgeGraph());
 

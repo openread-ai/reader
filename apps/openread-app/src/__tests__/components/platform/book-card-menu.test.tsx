@@ -129,12 +129,12 @@ describe('BookCardMenu', () => {
 
     it('should render Add to Collection menu item', () => {
       render(<BookCardMenu {...defaultProps} />);
-      expect(screen.getByText('Add to Collection...')).toBeTruthy();
+      expect(screen.getByText('Add to Collection')).toBeTruthy();
     });
 
-    it('should render Add to Want to Read menu item', () => {
+    it('should render Want to Read menu item', () => {
       render(<BookCardMenu {...defaultProps} />);
-      expect(screen.getByText('Add to Want to Read')).toBeTruthy();
+      expect(screen.getByText('Want to Read')).toBeTruthy();
     });
 
     it('should render Mark as Finished menu item', () => {
@@ -144,12 +144,12 @@ describe('BookCardMenu', () => {
 
     it('should render Rename menu item', () => {
       render(<BookCardMenu {...defaultProps} />);
-      expect(screen.getByText('Rename...')).toBeTruthy();
+      expect(screen.getByText('Rename')).toBeTruthy();
     });
 
     it('should render Remove menu item', () => {
       render(<BookCardMenu {...defaultProps} />);
-      expect(screen.getByText('Remove...')).toBeTruthy();
+      expect(screen.getByText('Remove')).toBeTruthy();
     });
 
     it('should render 2 separators', () => {
@@ -191,15 +191,15 @@ describe('BookCardMenu', () => {
       const onAddToCollection = vi.fn();
       render(<BookCardMenu {...defaultProps} onAddToCollection={onAddToCollection} />);
 
-      fireEvent.click(screen.getByText('Add to Collection...'));
+      fireEvent.click(screen.getByText('Add to Collection'));
       expect(onAddToCollection).toHaveBeenCalledTimes(1);
     });
 
-    it('should call setReadingStatus with unread when Add to Want to Read is clicked', async () => {
+    it('should call setReadingStatus with unread when Want to Read is clicked', async () => {
       const book = createMockBook();
       render(<BookCardMenu {...defaultProps} book={book} />);
 
-      fireEvent.click(screen.getByText('Add to Want to Read'));
+      fireEvent.click(screen.getByText('Want to Read'));
       expect(mockSetReadingStatus).toHaveBeenCalledWith(book, 'unread');
     });
 
@@ -215,7 +215,7 @@ describe('BookCardMenu', () => {
       const onRename = vi.fn();
       render(<BookCardMenu {...defaultProps} onRename={onRename} />);
 
-      fireEvent.click(screen.getByText('Rename...'));
+      fireEvent.click(screen.getByText('Rename'));
       expect(onRename).toHaveBeenCalledTimes(1);
     });
 
@@ -223,7 +223,7 @@ describe('BookCardMenu', () => {
       const onRemove = vi.fn();
       render(<BookCardMenu {...defaultProps} onRemove={onRemove} />);
 
-      fireEvent.click(screen.getByText('Remove...'));
+      fireEvent.click(screen.getByText('Remove'));
       expect(onRemove).toHaveBeenCalledTimes(1);
     });
   });
@@ -236,7 +236,7 @@ describe('BookCardMenu', () => {
       });
       render(<BookCardMenu {...defaultProps} book={specificBook} />);
 
-      fireEvent.click(screen.getByText('Add to Want to Read'));
+      fireEvent.click(screen.getByText('Want to Read'));
       expect(mockSetReadingStatus).toHaveBeenCalledWith(specificBook, 'unread');
     });
 
@@ -307,11 +307,11 @@ describe('BookCardMenu', () => {
       const items = screen.getAllByTestId('dropdown-item');
 
       expect(items[0].textContent).toContain('Select Multiple');
-      expect(items[1].textContent).toContain('Add to Collection...');
-      expect(items[2].textContent).toContain('Add to Want to Read');
+      expect(items[1].textContent).toContain('Add to Collection');
+      expect(items[2].textContent).toContain('Want to Read');
       expect(items[3].textContent).toContain('Mark as Finished');
-      expect(items[4].textContent).toContain('Rename...');
-      expect(items[5].textContent).toContain('Remove...');
+      expect(items[4].textContent).toContain('Rename');
+      expect(items[5].textContent).toContain('Remove');
     });
   });
 });

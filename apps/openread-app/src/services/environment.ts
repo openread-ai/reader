@@ -40,6 +40,10 @@ export interface EnvConfigType {
 
 let nativeAppService: AppService | null = null;
 const getNativeAppService = async () => {
+  // Double-check Tauri runtime is available — Turbopack may incorrectly resolve env vars
+  if (typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)) {
+    return getWebAppService();
+  }
   if (!nativeAppService) {
     const { NativeAppService } = await import('@/services/nativeAppService');
     nativeAppService = new NativeAppService();

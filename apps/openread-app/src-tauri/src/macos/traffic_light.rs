@@ -55,11 +55,7 @@ fn get_drag_view_class() -> &'static objc::runtime::Class {
             }
         }
 
-        extern "C" fn accepts_first_mouse(
-            _this: &Object,
-            _sel: Sel,
-            _event: id,
-        ) -> BOOL {
+        extern "C" fn accepts_first_mouse(_this: &Object, _sel: Sel, _event: id) -> BOOL {
             // Accept clicks even when the window isn't focused, so users can
             // drag an unfocused window without an extra click to focus first
             YES
@@ -92,8 +88,7 @@ fn setup_native_drag_region<R: Runtime>(window: Window<R>) {
     unsafe {
         let ns_win = window
             .ns_window()
-            .expect("NS Window should exist for drag region setup")
-            as id;
+            .expect("NS Window should exist for drag region setup") as id;
         let drag_class = get_drag_view_class();
         let content_view: id = msg_send![ns_win, contentView];
         let content_frame: NSRect = NSView::frame(content_view);
@@ -144,10 +139,11 @@ fn cap_window_to_screen<R: Runtime>(window: &Window<R>) {
             if cur_w > max_w || cur_h > max_h {
                 let new_w = cur_w.min(max_w);
                 let new_h = cur_h.min(max_h);
-                let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
-                    new_w, new_h,
-                )));
-                log::info!("Capped window size to {new_w:.0}x{new_h:.0} (screen {max_w:.0}x{max_h:.0})");
+                let _ =
+                    window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(new_w, new_h)));
+                log::info!(
+                    "Capped window size to {new_w:.0}x{new_h:.0} (screen {max_w:.0}x{max_h:.0})"
+                );
             }
         }
     }
@@ -195,7 +191,9 @@ pub fn set_native_drag_region(window: Window, enabled: bool) {
     use objc::runtime::Class;
 
     unsafe {
-        let ns_win = window.ns_window().expect("NS window needed for drag region toggle") as id;
+        let ns_win = window
+            .ns_window()
+            .expect("NS window needed for drag region toggle") as id;
         let content_view: id = msg_send![ns_win, contentView];
 
         // Find the drag view by its registered ObjC class name
@@ -206,8 +204,11 @@ pub fn set_native_drag_region(window: Window, enabled: bool) {
                 let subview: id = msg_send![subviews, objectAtIndex: i];
                 let view_class: *const Class = msg_send![subview, class];
                 if std::ptr::eq(view_class, drag_class) {
-                    let hidden: cocoa::base::BOOL =
-                        if enabled { cocoa::base::NO } else { cocoa::base::YES };
+                    let hidden: cocoa::base::BOOL = if enabled {
+                        cocoa::base::NO
+                    } else {
+                        cocoa::base::YES
+                    };
                     let _: () = msg_send![subview, setHidden: hidden];
                     log::info!(
                         "Native drag region {}",
@@ -316,7 +317,9 @@ pub fn setup_traffic_light_positioner<R: Runtime>(window: Window<R>) {
                     if state.window.label() == "main" || state.window.label().starts_with("reader")
                     {
                         reposition_traffic_lights(
-                            state.window.ns_window()
+                            state
+                                .window
+                                .ns_window()
                                 .expect("NS window should exist on state to handle resize"),
                         );
                     }
@@ -448,7 +451,9 @@ pub fn setup_traffic_light_positioner<R: Runtime>(window: Window<R>) {
                     if state.window.label() == "main" || state.window.label().starts_with("reader")
                     {
                         reposition_traffic_lights(
-                            state.window.ns_window()
+                            state
+                                .window
+                                .ns_window()
                                 .expect("NS window should exist to reposition traffic lights"),
                         );
                     }

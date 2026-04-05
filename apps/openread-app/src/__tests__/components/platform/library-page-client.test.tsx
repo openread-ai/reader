@@ -178,6 +178,35 @@ vi.mock('@/hooks/useSync', () => ({
   })),
 }));
 
+// Mock useLibraryLimit — prevent jwtDecode crash from fake token strings
+vi.mock('@/hooks/useLibraryLimit', () => ({
+  useLibraryLimit: vi.fn(() => ({
+    canAddBook: true,
+    libraryLimit: null,
+    currentCount: 0,
+    plan: 'free',
+    upgradeTierName: 'Reader',
+    upgradePriceCents: 499,
+    isLoading: false,
+  })),
+}));
+
+// Mock useWelcomeScreen — prevent welcome screen from hiding BookGrid
+vi.mock('@/hooks/useWelcomeScreen', () => ({
+  useWelcomeScreen: vi.fn(() => ({
+    showWelcome: false,
+    dismissWelcome: vi.fn(),
+  })),
+}));
+
+// Mock useOnboarding — prevent onboarding dialog from appearing
+vi.mock('@/hooks/useOnboarding', () => ({
+  useOnboarding: vi.fn(() => ({
+    showOnboarding: false,
+    completeOnboarding: vi.fn(),
+  })),
+}));
+
 // Mock useLibraryViewStore
 vi.mock('@/store/libraryViewStore', () => ({
   useLibraryViewStore: vi.fn((selector?: (state: typeof mockLibraryViewState) => unknown) => {
@@ -564,6 +593,17 @@ describe('LibraryPageClient', () => {
         books: [],
         isLoading: false,
       });
+
+      // Restore default useLibraryViewStore mock (previous tests may override searchQuery)
+      mockLibraryViewState.searchQuery = '';
+      vi.mocked(useLibraryViewStore).mockImplementation(
+        (selector?: (state: typeof mockLibraryViewState) => unknown) => {
+          if (selector) {
+            return selector(mockLibraryViewState);
+          }
+          return mockLibraryViewState;
+        },
+      );
     });
 
     it('should show correct empty message for all filter', () => {

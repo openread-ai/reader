@@ -13,13 +13,35 @@ vi.mock('@/context/EnvContext', () => ({
   useEnv: () => ({ envConfig: {} }),
 }));
 
+// Mock tier-config transitive dependencies (supabase, logger)
+vi.mock('@/utils/supabase', () => ({
+  createSupabaseAdminClient: vi.fn(() => ({ from: vi.fn() })),
+}));
+vi.mock('@/utils/logger', () => ({
+  createLogger: vi.fn(() => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  })),
+}));
+
 vi.mock('@/context/AuthContext', () => ({
   useAuth: () => ({
     token: mockAuthToken,
-    user: null,
+    user: mockAuthToken ? { id: 'test-user' } : null,
     login: vi.fn(),
     logout: vi.fn(),
     refresh: vi.fn(),
+  }),
+}));
+
+// Mock useQuotaStats (used by useFeatureGate -> useFeatureFlags)
+vi.mock('@/hooks/useQuotaStats', () => ({
+  useQuotaStats: () => ({
+    quotas: [],
+    userProfilePlan:
+      mockAuthToken === 'plus-token' ? 'reader' : mockAuthToken === 'pro-token' ? 'pro' : 'free',
   }),
 }));
 
@@ -73,7 +95,7 @@ vi.mock('@/services/environment', () => ({
 
 vi.mock('@/utils/access', () => ({
   getSubscriptionPlan: (token: string) => {
-    if (token === 'plus-token') return 'plus';
+    if (token === 'plus-token') return 'reader';
     if (token === 'pro-token') return 'pro';
     return 'free';
   },
@@ -139,8 +161,10 @@ describe('AiSection - BYOK UI (free user)', () => {
 
   it('should show upgrade link for free users (no token)', () => {
     render(<AiSection />);
-    expect(screen.getByText('Available on Plus and Pro plans.')).toBeTruthy();
-    expect(screen.getByText('Upgrade to unlock')).toBeTruthy();
+    // Gate message from tier-gates: "Bring Your Own Key is available on Reader."
+    expect(screen.getByText(/Bring Your Own Key is available on Reader/)).toBeTruthy();
+    // CTA shows tier name and price from S4.2 (ctaText: "Start Reader -- $7.99/mo")
+    expect(screen.getByText(/Start Reader/)).toBeTruthy();
   });
 
   it('should render the enable AI toggle', () => {
@@ -237,7 +261,8 @@ describe('AiSection - BYOK for Plus users', () => {
 
   it('should not show upgrade link for Plus users', () => {
     render(<AiSection />);
-    expect(screen.queryByText('Available on Plus and Pro plans.')).toBeNull();
-    expect(screen.queryByText('Upgrade to unlock')).toBeNull();
+    expect(screen.queryByText(/Bring Your Own Key is available on Reader/)).toBeNull();
+    // Plus users see the provider dropdown, not upgrade CTA
+    expect(screen.queryByText(/Start Reader/)).toBeNull();
   });
 });

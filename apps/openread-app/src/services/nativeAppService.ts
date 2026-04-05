@@ -61,7 +61,7 @@ declare global {
   }
 }
 
-const OS_TYPE = osType();
+const OS_TYPE = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window ? osType() : 'web';
 
 // Helper function to create a path resolver based on custom root directory and portable mode
 // 0. If no custom root dir and not portable mode, use default Tauri BaseDirectory

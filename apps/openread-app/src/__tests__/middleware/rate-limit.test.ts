@@ -257,7 +257,7 @@ describe('Middleware - Rate Limiting', () => {
     });
 
     it('should pass the identifier to limiter.limit()', async () => {
-      mockedGetIdentifier.mockReturnValue('user-xyz');
+      mockedGetIdentifier.mockResolvedValue('user-xyz');
 
       const request = makeRequest('/api/ai/chat');
       await middleware(request);

@@ -93,7 +93,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' blob: fonts.googleapis.com cdnjs.cloudflare.com cdn.jsdelivr.net storage.openread.com",
               "font-src 'self' blob: data: fonts.gstatic.com cdnjs.cloudflare.com",
               "img-src 'self' data: blob: asset: http://asset.localhost *.supabase.co cdn.openread.com storage.openread.com *.r2.cloudflarestorage.com *.googleusercontent.com",
-              "connect-src 'self' blob: asset: http://asset.localhost ipc: http://ipc.localhost *.supabase.co wss://*.supabase.co *.posthog.com *.sentry.io js.stripe.com speech.platform.bing.com *.googleapis.com api.openread.com *.openread.ai *.r2.cloudflarestorage.com lh3.googleusercontent.com",
+              "connect-src 'self' blob: asset: http://asset.localhost ipc: http://ipc.localhost http://localhost:3001 *.supabase.co wss://*.supabase.co *.posthog.com *.sentry.io js.stripe.com speech.platform.bing.com *.googleapis.com api.openread.com *.openread.ai *.r2.cloudflarestorage.com lh3.googleusercontent.com",
               "media-src 'self' blob: data:",
               "object-src 'none'",
               "base-uri 'self'",

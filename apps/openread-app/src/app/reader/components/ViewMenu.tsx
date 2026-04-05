@@ -23,6 +23,7 @@ import { useReaderStore } from '@/store/readerStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { getStyles } from '@/utils/style';
 import { navigateToLogin } from '@/utils/nav';
 import { eventDispatcher } from '@/utils/event';
@@ -50,6 +51,9 @@ const ViewMenu: React.FC<ViewMenuProps> = ({ bookKey, setIsDropdownOpen }) => {
   const viewSettings = getViewSettings(bookKey)!;
   const viewState = getViewState(bookKey);
 
+  const ttsGate = useFeatureGate('tts');
+  const translateGate = useFeatureGate('translate');
+  const syncGate = useFeatureGate('sync');
   const { themeMode, isDarkMode, setThemeMode } = useThemeStore();
   const [isScrolledMode, setScrolledMode] = useState(viewSettings!.scrolled);
   const [isParagraphMode, setParagraphMode] = useState(
@@ -92,6 +96,13 @@ const ViewMenu: React.FC<ViewMenuProps> = ({ bookKey, setIsDropdownOpen }) => {
   const handleSync = () => {
     if (!user) {
       navigateToLogin(router);
+      setIsDropdownOpen?.(false);
+    } else if (!syncGate.allowed) {
+      eventDispatcher.dispatch('toast', {
+        message: `${syncGate.message} ${syncGate.ctaText} \u2192`,
+        type: 'info',
+        timeout: 5000,
+      });
       setIsDropdownOpen?.(false);
     } else {
       eventDispatcher.dispatch('sync-book-progress', { bookKey });
@@ -299,9 +310,22 @@ const ViewMenu: React.FC<ViewMenuProps> = ({ bookKey, setIsDropdownOpen }) => {
       {appService?.isIOSApp && (
         <>
           <MenuItem
-            label={_('Read Aloud')}
+            label={
+              ttsGate.allowed
+                ? _('Read Aloud')
+                : _('Read Aloud') + ' (' + ttsGate.requiredTierName + ')'
+            }
             Icon={MdOutlineHeadphones}
             onClick={() => {
+              if (!ttsGate.allowed) {
+                eventDispatcher.dispatch('toast', {
+                  message: `${ttsGate.message} ${ttsGate.ctaText} \u2192`,
+                  type: 'info',
+                  timeout: 5000,
+                });
+                setIsDropdownOpen?.(false);
+                return;
+              }
               eventDispatcher.dispatch(viewState?.ttsEnabled ? 'tts-stop' : 'tts-speak', {
                 bookKey,
               });
@@ -309,9 +333,22 @@ const ViewMenu: React.FC<ViewMenuProps> = ({ bookKey, setIsDropdownOpen }) => {
             }}
           />
           <MenuItem
-            label={_('Translation')}
+            label={
+              translateGate.allowed
+                ? _('Translation')
+                : _('Translation') + ' (' + translateGate.requiredTierName + ')'
+            }
             Icon={PiTranslateBold}
             onClick={() => {
+              if (!translateGate.allowed) {
+                eventDispatcher.dispatch('toast', {
+                  message: `${translateGate.message} ${translateGate.ctaText} \u2192`,
+                  type: 'info',
+                  timeout: 5000,
+                });
+                setIsDropdownOpen?.(false);
+                return;
+              }
               const newVal = !viewSettings.translationEnabled;
               saveViewSettings(envConfig, bookKey, 'translationEnabled', newVal, false, true);
               setIsDropdownOpen?.(false);

@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from '@/utils/supabase';
 import { validateUserAndToken } from '@/utils/access';
 import { deleteObject } from '@/utils/object';
 import { deletePlatformBook } from '@/utils/platformBooks';
+import { decrementStorageUsed } from '@/lib/storage-quota';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, corsAllMethods);
@@ -27,7 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const supabase = createSupabaseAdminClient();
     const { data: fileRecord, error: fileError } = await supabase
       .from('files')
-      .select('user_id, id, book_hash')
+      .select('user_id, id, book_hash, file_size')
       .eq('user_id', user.id)
       .eq('file_key', fileKey)
       .limit(1)
@@ -48,6 +49,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (deleteError) {
         console.error('Error updating file record:', deleteError);
         return res.status(500).json({ error: 'Could not update file record' });
+      }
+
+      // Decrement storage usage for the deleted file
+      if (fileRecord.file_size && fileRecord.file_size > 0) {
+        await decrementStorageUsed(user.id, fileRecord.file_size);
       }
 
       // P8.3: Also delete from books if the file had a book_hash (supplementary)

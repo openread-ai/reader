@@ -3,6 +3,46 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { SelectionToolbar } from '@/components/platform/selection-toolbar';
 
+// Mock EnvContext
+vi.mock('@/context/EnvContext', () => ({
+  useEnv: () => ({
+    appService: null,
+    envConfig: {},
+  }),
+}));
+
+// Mock Button component
+vi.mock('@/components/primitives/button', () => ({
+  Button: ({
+    children,
+    onClick,
+    disabled,
+    className,
+    title,
+    'data-testid': testId,
+    ...props
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+    className?: string;
+    title?: string;
+    'data-testid'?: string;
+    [key: string]: unknown;
+  }) => (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={className}
+      title={title}
+      data-testid={testId}
+      {...props}
+    >
+      {children}
+    </button>
+  ),
+}));
+
 // Mock functions
 const mockSelectAll = vi.fn();
 const mockClearSelection = vi.fn();

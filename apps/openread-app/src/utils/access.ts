@@ -32,21 +32,21 @@ export function isTokenExpired(token: string, graceSeconds = 30): boolean {
   }
 }
 
+/** Normalize legacy plan values from JWT tokens to current UserPlan values. */
+function normalizePlan(rawPlan: string): UserPlan {
+  if (rawPlan === 'plus') return 'reader';
+  if (rawPlan === 'purchase') return 'free';
+  return (rawPlan || 'free') as UserPlan;
+}
+
 export const getSubscriptionPlan = (token: string): UserPlan => {
   const data = jwtDecode<Token>(token) || {};
-  return data['plan'] || 'free';
+  return normalizePlan(data['plan'] as string);
 };
 
 export const getUserProfilePlan = (token: string): UserPlan => {
   const data = jwtDecode<Token>(token) || {};
-  let plan = data['plan'] || 'free';
-  if (plan === 'free') {
-    const purchasedQuota = data['storage_purchased_bytes'] || 0;
-    if (purchasedQuota > 0) {
-      plan = 'purchase';
-    }
-  }
-  return plan;
+  return normalizePlan(data['plan'] as string);
 };
 
 export const STORAGE_QUOTA_GRACE_BYTES = 10 * 1024 * 1024; // 10 MB grace

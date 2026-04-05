@@ -279,6 +279,7 @@ describe('PlatformSync', () => {
         sizeBytes: 1000,
         storagePath: 'path/to/book',
         userId: 'user-1',
+        catalogBookId: null,
         createdAt: Date.parse('2024-01-15T10:00:00.000Z'),
         updatedAt: Date.parse('2024-01-15T10:00:00.000Z'),
       };
@@ -299,6 +300,7 @@ describe('PlatformSync', () => {
         sizeBytes: 1000,
         storagePath: 'path/to/book',
         userId: 'user-1',
+        catalogBookId: null,
         createdAt: Date.parse('2024-01-15T10:00:00.000Z'),
         updatedAt: Date.parse('2024-01-20T10:00:00.000Z'), // Newer
       };
@@ -325,6 +327,7 @@ describe('PlatformSync', () => {
         sizeBytes: 1000,
         storagePath: 'path/to/book',
         userId: 'user-1',
+        catalogBookId: null,
         createdAt: Date.parse('2024-01-15T10:00:00.000Z'),
         updatedAt: Date.parse('2024-01-15T10:00:00.000Z'), // Older
       };
@@ -351,6 +354,7 @@ describe('PlatformSync', () => {
         sizeBytes: 1000,
         storagePath: 'path/to/book',
         userId: 'user-1',
+        catalogBookId: null,
         createdAt: Date.parse('2024-01-15T10:00:00.000Z'),
         updatedAt: Date.parse('2024-01-20T10:00:00.000Z'),
       };

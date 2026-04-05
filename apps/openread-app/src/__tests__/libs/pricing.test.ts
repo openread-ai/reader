@@ -16,15 +16,15 @@ describe('pricing', () => {
       const pricing = getRegionalPricing('IN');
       expect(pricing.currency).toBe('INR');
       expect(pricing.symbol).toBe('\u20B9');
-      expect(pricing.plus).toBe(299);
-      expect(pricing.pro).toBe(599);
+      expect(pricing.reader).toBe(349);
+      expect(pricing.pro).toBe(699);
     });
 
     it('should return BRL pricing for Brazil', () => {
       const pricing = getRegionalPricing('BR');
       expect(pricing.currency).toBe('BRL');
       expect(pricing.symbol).toBe('R$');
-      expect(pricing.plus).toBe(29.99);
+      expect(pricing.reader).toBe(29.99);
       expect(pricing.pro).toBe(59.99);
     });
 
@@ -32,7 +32,7 @@ describe('pricing', () => {
       const pricing = getRegionalPricing('US');
       expect(pricing.currency).toBe('USD');
       expect(pricing.symbol).toBe('$');
-      expect(pricing.plus).toBe(9.99);
+      expect(pricing.reader).toBe(9.99);
       expect(pricing.pro).toBe(19.99);
     });
 
@@ -97,27 +97,27 @@ describe('pricing', () => {
   // formatPrice
   // -------------------------------------------------------------------
   describe('formatPrice', () => {
-    it('should format USD plus price correctly', () => {
-      expect(formatPrice(DEFAULT_PRICING, 'plus')).toBe('$9.99');
+    it('should format USD reader price correctly', () => {
+      expect(formatPrice(DEFAULT_PRICING, 'reader')).toBe('$9.99');
     });
 
     it('should format USD pro price correctly', () => {
       expect(formatPrice(DEFAULT_PRICING, 'pro')).toBe('$19.99');
     });
 
-    it('should format INR plus price correctly', () => {
+    it('should format INR reader price correctly', () => {
       const inr = getRegionalPricing('IN');
-      expect(formatPrice(inr, 'plus')).toBe('\u20B9299');
+      expect(formatPrice(inr, 'reader')).toBe('\u20B9349');
     });
 
     it('should format INR pro price correctly', () => {
       const inr = getRegionalPricing('IN');
-      expect(formatPrice(inr, 'pro')).toBe('\u20B9599');
+      expect(formatPrice(inr, 'pro')).toBe('\u20B9699');
     });
 
-    it('should format BRL plus price correctly', () => {
+    it('should format BRL reader price correctly', () => {
       const brl = getRegionalPricing('BR');
-      expect(formatPrice(brl, 'plus')).toBe('R$29.99');
+      expect(formatPrice(brl, 'reader')).toBe('R$29.99');
     });
 
     it('should format BRL pro price correctly', () => {
@@ -141,16 +141,16 @@ describe('pricing', () => {
 
     it('should have positive prices for all regional tiers', () => {
       for (const [, pricing] of Object.entries(REGIONAL_PRICING)) {
-        expect(pricing.plus).toBeGreaterThan(0);
+        expect(pricing.reader).toBeGreaterThan(0);
         expect(pricing.pro).toBeGreaterThan(0);
-        expect(pricing.pro).toBeGreaterThan(pricing.plus);
+        expect(pricing.pro).toBeGreaterThan(pricing.reader);
       }
     });
 
     it('should have positive prices for default tier', () => {
-      expect(DEFAULT_PRICING.plus).toBeGreaterThan(0);
+      expect(DEFAULT_PRICING.reader).toBeGreaterThan(0);
       expect(DEFAULT_PRICING.pro).toBeGreaterThan(0);
-      expect(DEFAULT_PRICING.pro).toBeGreaterThan(DEFAULT_PRICING.plus);
+      expect(DEFAULT_PRICING.pro).toBeGreaterThan(DEFAULT_PRICING.reader);
     });
   });
 });

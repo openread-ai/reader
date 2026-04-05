@@ -195,6 +195,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .from('ai_messages')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', user.id),
+
+      // E18 billing tables
+      supabaseAdmin
+        .from('storage_addons')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id),
+      supabaseAdmin
+        .from('boost_purchases')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id),
     ]);
 
     // Check if any tables still have data for this user
@@ -208,6 +218,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       'user_provider_keys',
       'ai_conversations',
       'ai_messages',
+      'storage_addons',
+      'boost_purchases',
     ] as const;
 
     // FIX-20-07: Check for query-level errors in verification results

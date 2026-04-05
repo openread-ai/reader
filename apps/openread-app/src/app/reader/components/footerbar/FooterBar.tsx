@@ -5,6 +5,7 @@ import { useReaderStore } from '@/store/readerStore';
 import { useSidebarStore } from '@/store/sidebarStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useDeviceControlStore } from '@/store/deviceStore';
 import { eventDispatcher } from '@/utils/event';
 import { FooterBarProps, NavigationHandlers, FooterBarChildProps } from './types';
@@ -28,6 +29,7 @@ const FooterBar: React.FC<FooterBarProps> = ({
 }) => {
   const _ = useTranslation();
   const { appService } = useEnv();
+  const ttsGate = useFeatureGate('tts');
   const { getConfig, setConfig, getBookData } = useBookDataStore();
   const { hoveredBookKey, setHoveredBookKey } = useReaderStore();
   const { getView, getViewState, getProgress, getViewSettings } = useReaderStore();
@@ -95,9 +97,19 @@ const FooterBar: React.FC<FooterBarProps> = ({
   const handleSpeakText = useCallback(async () => {
     if (!view || !progress || !viewState) return;
 
+    // Gate TTS behind tier check
+    if (!viewState.ttsEnabled && !ttsGate.allowed) {
+      eventDispatcher.dispatch('toast', {
+        message: `${ttsGate.message} ${ttsGate.ctaText} \u2192`,
+        type: 'info',
+        timeout: 5000,
+      });
+      return;
+    }
+
     const eventType = viewState.ttsEnabled ? 'tts-stop' : 'tts-speak';
     eventDispatcher.dispatch(eventType, { bookKey });
-  }, [view, progress, viewState, bookKey]);
+  }, [view, progress, viewState, bookKey, ttsGate]);
 
   const handleSetActionTab = useCallback(
     (tab: string) => {

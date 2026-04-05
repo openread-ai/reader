@@ -4,6 +4,14 @@ import React from 'react';
 import { BookCard } from '@/components/platform/book-card';
 import type { Book } from '@/types/book';
 
+// Mock EnvContext
+vi.mock('@/context/EnvContext', () => ({
+  useEnv: () => ({
+    appService: null,
+    envConfig: {},
+  }),
+}));
+
 // Mock next/link
 vi.mock('next/link', () => ({
   default: ({

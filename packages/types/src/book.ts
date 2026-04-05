@@ -101,4 +101,12 @@ export interface Book extends BookCore {
    * @example "123e4567-e89b-12d3-a456-426614174000"
    */
   userId: string;
+
+  /**
+   * Catalog book ID if this book was imported from the free catalog.
+   * Null for user-uploaded books.
+   * When non-null, the storagePath points to a shared R2 file (catalog/books/...)
+   * that must NOT be deleted when the user removes this book from their library.
+   */
+  catalogBookId: string | null;
 }

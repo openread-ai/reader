@@ -677,6 +677,9 @@ export const READEST_CHANGELOG_FILE = `${LATEST_DOWNLOAD_BASE_URL}/release-notes
 
 export const READEST_PUBLIC_STORAGE_BASE_URL = 'https://storage.openread.com';
 
+export const CATALOG_API_BASE_URL =
+  process.env['NEXT_PUBLIC_CATALOG_API_URL'] || 'https://api.openread.ai';
+
 export const READEST_OPDS_USER_AGENT = 'Openread/1.0 (OPDS Browser)';
 
 export const SYNC_PROGRESS_INTERVAL_SEC = 3;
@@ -690,18 +693,21 @@ export const ZOOM_STEP = 10;
 
 export const SHOW_UNREAD_STATUS_BADGE = false;
 
+/**
+ * FALLBACK ONLY — the source of truth is the `tier_config` Supabase table.
+ * Use getTierDefinition(plan) from '@/lib/tier-config' for runtime values.
+ * These constants are used when the database is unreachable.
+ */
 export const DEFAULT_STORAGE_QUOTA: UserStorageQuota = {
-  free: 500 * 1024 * 1024,
-  plus: 5 * 1024 * 1024 * 1024,
-  pro: 20 * 1024 * 1024 * 1024,
-  purchase: 0,
+  free: 0,
+  reader: 2 * 1024 * 1024 * 1024,
+  pro: 5 * 1024 * 1024 * 1024,
 };
 
 export const DEFAULT_DAILY_TRANSLATION_QUOTA: UserDailyTranslationQuota = {
   free: 10 * 1024,
-  plus: 100 * 1024,
+  reader: 100 * 1024,
   pro: 500 * 1024,
-  purchase: 0,
 };
 
 export const DOUBLE_CLICK_INTERVAL_THRESHOLD_MS = 250;

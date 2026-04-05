@@ -5,6 +5,14 @@ import { CollectionCard } from '@/components/platform/collection-card';
 import type { Collection } from '@/store/platformSidebarStore';
 import type { Book } from '@/types/book';
 
+// Mock EnvContext
+vi.mock('@/context/EnvContext', () => ({
+  useEnv: () => ({
+    appService: null,
+    envConfig: {},
+  }),
+}));
+
 // Mock next/link
 vi.mock('next/link', () => ({
   default: ({
@@ -214,7 +222,7 @@ describe('CollectionCard', () => {
       const collection = createMockCollection({ id: 'my-collection-id' });
       render(<CollectionCard collection={collection} />);
       const link = screen.getByRole('link');
-      expect(link.getAttribute('href')).toBe('/collections/my-collection-id');
+      expect(link.getAttribute('href')).toBe('/collections?id=my-collection-id');
     });
 
     it('should have accessible aria-label', () => {

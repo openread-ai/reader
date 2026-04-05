@@ -29,10 +29,14 @@ async function cleanupDeletedBook(book: Book, remainingLibrary: Book[]): Promise
   try {
     const appService = await envConfig.getAppService();
 
+    // Catalog books use shared R2 files — only delete local copy, never cloud.
+    // User-uploaded books delete both local and cloud copies.
+    const deleteAction = book.catalogBookId ? 'local' : 'both';
+
     // Save updated library, remove from collections, delete files — all in parallel
     const [, , sidebarStore] = await Promise.all([
       appService.saveLibraryBooks(remainingLibrary),
-      appService.deleteBook(book, 'both').catch(() => {}),
+      appService.deleteBook(book, deleteAction).catch(() => {}),
       import('@/store/platformSidebarStore'),
     ]);
 

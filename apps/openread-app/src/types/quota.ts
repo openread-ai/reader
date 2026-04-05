@@ -1,8 +1,7 @@
 export interface UserQuota {
   free: number;
-  plus: number;
+  reader: number;
   pro: number;
-  purchase: number;
 }
 
 export type UserStorageQuota = UserQuota;

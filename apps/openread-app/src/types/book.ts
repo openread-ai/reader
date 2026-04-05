@@ -45,6 +45,9 @@ export interface Book extends BookCore {
   readingStatus?: ReadingStatus;
   primaryLanguage?: string;
 
+  /** Catalog book ID if imported from the free catalog. Null/undefined for user uploads. */
+  catalogBookId?: string | null;
+
   metadata?: BookMetadata;
 }
 

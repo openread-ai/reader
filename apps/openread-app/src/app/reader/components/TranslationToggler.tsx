@@ -4,13 +4,16 @@ import { RiTranslateAi } from 'react-icons/ri';
 import { useEnv } from '@/context/EnvContext';
 import { useReaderStore } from '@/store/readerStore';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { saveViewSettings } from '@/helpers/settings';
 import { isTranslationAvailable } from '@/services/translators/utils';
+import { eventDispatcher } from '@/utils/event';
 import Button from '@/components/Button';
 
 const TranslationToggler = ({ bookKey }: { bookKey: string }) => {
   const _ = useTranslation();
+  const translateGate = useFeatureGate('translate');
   const { envConfig, appService } = useEnv();
   const { getBookData } = useBookDataStore();
   const { getViewSettings, setViewSettings, setHoveredBookKey } = useReaderStore();
@@ -46,14 +49,26 @@ const TranslationToggler = ({ bookKey }: { bookKey: string }) => {
         <RiTranslateAi className={translationEnabled ? 'text-blue-500' : 'text-base-content'} />
       }
       aria-label={_('Toggle Translation')}
-      disabled={!translationAvailable && !translationEnabled}
-      onClick={() => setTranslationEnabled(!translationEnabled)}
+      disabled={(!translationAvailable && !translationEnabled) || !translateGate.allowed}
+      onClick={() => {
+        if (!translateGate.allowed) {
+          eventDispatcher.dispatch('toast', {
+            message: `${translateGate.message} ${translateGate.ctaText} \u2192`,
+            type: 'info',
+            timeout: 5000,
+          });
+          return;
+        }
+        setTranslationEnabled(!translationEnabled);
+      }}
       label={
-        translationAvailable
-          ? translationEnabled
-            ? _('Disable Translation')
-            : _('Enable Translation')
-          : _('Translation Disabled')
+        !translateGate.allowed
+          ? _('Translation') + ' (' + translateGate.requiredTierName + ')'
+          : translationAvailable
+            ? translationEnabled
+              ? _('Disable Translation')
+              : _('Enable Translation')
+            : _('Translation Disabled')
       }
     ></Button>
   );

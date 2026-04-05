@@ -115,11 +115,18 @@ describe('Sidebar', () => {
       expect(screen.getByRole('link', { name: /home/i }).getAttribute('href')).toBe('/home');
     });
 
-    it('should render OPDS link', () => {
+    it('should render Explore link', () => {
       render(<Sidebar />);
-      const opdsLink = screen.getByRole('link', { name: /opds/i });
-      expect(opdsLink).toBeTruthy();
-      expect(opdsLink.getAttribute('href')).toBe('/opds');
+      const exploreLink = screen.getByRole('link', { name: /explore/i });
+      expect(exploreLink).toBeTruthy();
+      expect(exploreLink.getAttribute('href')).toBe('/explore');
+    });
+
+    it('should render Wishlist link', () => {
+      render(<Sidebar />);
+      const wishlistLink = screen.getByRole('link', { name: /wishlist/i });
+      expect(wishlistLink).toBeTruthy();
+      expect(wishlistLink.getAttribute('href')).toBe('/explore/wishlist');
     });
 
     it('should render Library section with all filter links', () => {
@@ -175,6 +182,35 @@ describe('Sidebar', () => {
       const libraryAllLink = allLinks.find((link) => link.getAttribute('href') === '/library');
       expect(libraryAllLink).toBeTruthy();
       expect(libraryAllLink!.className).toContain('bg-base-300');
+    });
+
+    it('should highlight Explore link when on /explore route', () => {
+      mockPathname.mockReturnValue('/explore');
+      render(<Sidebar />);
+      const exploreLink = screen.getByRole('link', { name: /explore/i });
+      expect(exploreLink.className).toContain('bg-base-300');
+    });
+
+    it('should highlight Wishlist link when on /explore/wishlist route', () => {
+      mockPathname.mockReturnValue('/explore/wishlist');
+      render(<Sidebar />);
+      const wishlistLink = screen.getByRole('link', { name: /wishlist/i });
+      expect(wishlistLink.className).toContain('bg-base-300');
+    });
+
+    it('should NOT highlight Explore link when on /explore/wishlist route', () => {
+      mockPathname.mockReturnValue('/explore/wishlist');
+      render(<Sidebar />);
+      const exploreLink = screen.getByRole('link', { name: /explore/i });
+      // Use word-boundary regex to avoid matching hover:bg-base-300/50
+      expect(exploreLink.className).not.toMatch(/(?:^|\s)bg-base-300(?:\s|$)/);
+    });
+
+    it('should highlight Explore link on /explore sub-routes that are not /wishlist', () => {
+      mockPathname.mockReturnValue('/explore/collection/staff-picks');
+      render(<Sidebar />);
+      const exploreLink = screen.getByRole('link', { name: /explore/i });
+      expect(exploreLink.className).toContain('bg-base-300');
     });
 
     it('should highlight appropriate library filter when on sub-route', () => {

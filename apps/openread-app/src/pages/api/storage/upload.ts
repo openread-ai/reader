@@ -2,13 +2,15 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import {
-  getStoragePlanData,
+  getSubscriptionPlan,
   validateUserAndToken,
   STORAGE_QUOTA_GRACE_BYTES,
 } from '@/utils/access';
 import { getDownloadSignedUrl, getUploadSignedUrl } from '@/utils/object';
 import { READEST_PUBLIC_STORAGE_BASE_URL } from '@/services/constants';
 import { upsertPlatformBook } from '@/utils/platformBooks';
+import { getStorageQuota, incrementStorageUsed } from '@/lib/storage-quota';
+import type { UserPlan } from '@/types/quota';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, corsAllMethods);
@@ -50,9 +52,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Missing file info' });
     }
 
-    const { usage, quota } = getStoragePlanData(token);
-    if (usage + fileSize > quota + STORAGE_QUOTA_GRACE_BYTES) {
-      return res.status(403).json({ error: 'Insufficient storage quota', usage });
+    // Tier-based storage enforcement via storage-quota module
+    const plan = getSubscriptionPlan(token) as UserPlan;
+    const quota = await getStorageQuota(user.id, plan);
+
+    // Free tier: no cloud storage at all
+    if (quota.totalBytes === 0) {
+      return res.status(403).json({
+        error: 'STORAGE_NOT_AVAILABLE',
+        message: 'Cloud storage is not available on the Free plan',
+        upgradeUrl: '/user#plans',
+      });
+    }
+
+    // Over limit: block upload with add-on/upgrade suggestion
+    if (quota.usedBytes + fileSize > quota.totalBytes + STORAGE_QUOTA_GRACE_BYTES) {
+      return res.status(403).json({
+        error: 'STORAGE_LIMIT_REACHED',
+        message: 'Insufficient storage quota',
+        used: quota.usedBytes,
+        limit: quota.totalBytes,
+        addStorageUrl: '/user#storage',
+        upgradeUrl: '/user#plans',
+      });
     }
 
     const fileKey = `${user.id}/${fileName}`;
@@ -76,9 +98,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const fileType = isCoverFile ? 'cover' : 'book';
 
     let objSize = fileSize;
+    let isNewFile = false;
     if (existingRecord) {
       objSize = existingRecord.file_size;
     } else {
+      isNewFile = true;
       const { data: inserted, error: insertError } = await supabase
         .from('files')
         .insert([
@@ -133,11 +157,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       const uploadUrl = await getUploadSignedUrl(fileKey, objSize, 1800);
 
+      // Track storage usage atomically for new files
+      if (isNewFile) {
+        await incrementStorageUsed(user.id, fileSize);
+      }
+
       res.status(200).json({
         uploadUrl,
         fileKey,
-        usage: usage + fileSize,
-        quota,
+        usage: quota.usedBytes + (isNewFile ? fileSize : 0),
+        quota: quota.totalBytes,
       });
     } catch (error) {
       console.error('Error creating presigned post:', error);
