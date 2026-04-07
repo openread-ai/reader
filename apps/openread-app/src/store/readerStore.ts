@@ -237,9 +237,12 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
             gridInsets: null,
             viewSettings: {
               ...globalViewSettings,
-              // On mobile, default to scroll mode (most mobile readers scroll)
-              ...(appService.isMobile ? { scrolled: true } : {}),
               ...configViewSettings,
+              // On mobile, force scroll + continuous scroll and disable paragraph
+              // mode AFTER config so cloud sync can't override with desktop settings
+              ...(appService.isMobile
+                ? { scrolled: true, continuousScroll: true, paragraphMode: { enabled: false } }
+                : {}),
             },
           },
         },

@@ -1390,6 +1390,10 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
   private var collectionToolbar: NativeCollectionNavBar?
   private var selectionToolbar: NativeSelectionBar?
   private var sidebarCloseButton: UIButton?
+  private var chapterPullBottom: UIView?
+  private var chapterPullTop: UIView?
+  private var chapterPullBottomWidth: NSLayoutConstraint?
+  private var chapterPullTopWidth: NSLayoutConstraint?
   private var urlObservation: NSKeyValueObservation?
 
   /// Show native rename alert with text field.
@@ -1612,6 +1616,30 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
         hideFooterBar()
       }
 
+    case "openreadChapterPull":
+      let direction = body["direction"] as? String ?? ""
+      let progress = CGFloat(body["progress"] as? Double ?? 0)
+      let maxWidth = (self.webView?.bounds.width ?? 390) * 0.92
+      if direction == "next" {
+        chapterPullTop?.alpha = 0
+        chapterPullTopWidth?.constant = 0
+        chapterPullBottom?.alpha = progress > 0 ? 1 : 0
+        chapterPullBottomWidth?.constant = progress * maxWidth
+        chapterPullBottom?.superview?.layoutIfNeeded()
+      } else if direction == "prev" {
+        chapterPullBottom?.alpha = 0
+        chapterPullBottomWidth?.constant = 0
+        chapterPullTop?.alpha = progress > 0 ? 1 : 0
+        chapterPullTopWidth?.constant = progress * maxWidth
+        chapterPullTop?.superview?.layoutIfNeeded()
+      } else {
+        chapterPullBottom?.alpha = 0
+        chapterPullBottomWidth?.constant = 0
+        chapterPullTop?.alpha = 0
+        chapterPullTopWidth?.constant = 0
+        chapterPullBottom?.superview?.layoutIfNeeded()
+      }
+
     default:
       break
     }
@@ -1645,6 +1673,7 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
     contentController.add(self, name: "openreadCollectionPicker")
     contentController.add(self, name: "openreadCollectionToolbar")
     contentController.add(self, name: "openreadTextInput")
+    contentController.add(self, name: "openreadChapterPull")
     logger.log("NativeBridgePlugin: JS message handlers registered")
 
     // Native color picker overlay — added to the key window's root view
@@ -1756,6 +1785,43 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
     }
     self.footerBar = footer
     logger.log("NativeBridgePlugin: System UITabBar footer created")
+
+    // Pull-to-load chapter indicator: thin bar that expands from CENTER outward.
+    // Uses a plain UIView with centerXAnchor + animated width constraint.
+    if let parent = webview.superview {
+      let bottomBar = UIView()
+      bottomBar.translatesAutoresizingMaskIntoConstraints = false
+      bottomBar.backgroundColor = .systemBlue
+      bottomBar.layer.cornerRadius = 1.5
+      bottomBar.alpha = 0
+      parent.addSubview(bottomBar)
+      let bottomWidth = bottomBar.widthAnchor.constraint(equalToConstant: 0)
+      NSLayoutConstraint.activate([
+        bottomBar.centerXAnchor.constraint(equalTo: parent.centerXAnchor),
+        bottomWidth,
+        bottomBar.bottomAnchor.constraint(equalTo: parent.safeAreaLayoutGuide.bottomAnchor, constant: -2),
+        bottomBar.heightAnchor.constraint(equalToConstant: 3),
+      ])
+      self.chapterPullBottom = bottomBar
+      self.chapterPullBottomWidth = bottomWidth
+
+      let topBar = UIView()
+      topBar.translatesAutoresizingMaskIntoConstraints = false
+      topBar.backgroundColor = .systemBlue
+      topBar.layer.cornerRadius = 1.5
+      topBar.alpha = 0
+      parent.addSubview(topBar)
+      let topWidth = topBar.widthAnchor.constraint(equalToConstant: 0)
+      NSLayoutConstraint.activate([
+        topBar.centerXAnchor.constraint(equalTo: parent.centerXAnchor),
+        topWidth,
+        topBar.topAnchor.constraint(equalTo: parent.safeAreaLayoutGuide.topAnchor, constant: 2),
+        topBar.heightAnchor.constraint(equalToConstant: 3),
+      ])
+      self.chapterPullTop = topBar
+      self.chapterPullTopWidth = topWidth
+      logger.log("NativeBridgePlugin: Chapter pull indicator bars created")
+    }
 
     webViewLifecycleManager = WebViewLifecycleManager()
     webViewLifecycleManager?.startMonitoring(webView: webview)

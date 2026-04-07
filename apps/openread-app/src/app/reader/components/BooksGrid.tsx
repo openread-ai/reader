@@ -273,7 +273,7 @@ const BooksGrid: React.FC<BooksGridProps> = ({ bookKeys, onCloseBook }) => {
                 gridInsets={gridInsets}
               />
             )}
-            {showFooter && (
+            {showFooter && !appService?.isIOSApp && (
               <ProgressInfoView
                 bookKey={bookKey}
                 section={section}

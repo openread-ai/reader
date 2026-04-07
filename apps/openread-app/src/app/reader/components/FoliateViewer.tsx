@@ -12,6 +12,7 @@ import { useCustomFontStore } from '@/store/customFontStore';
 import { useParallelViewStore } from '@/store/parallelViewStore';
 import { useMouseEvent, useTouchEvent } from '../hooks/useIframeEvents';
 import { usePagination } from '../hooks/usePagination';
+import { useChapterPull } from '../hooks/useChapterPull';
 import { useFoliateEvents } from '../hooks/useFoliateEvents';
 import { useProgressSync } from '../hooks/useProgressSync';
 import { useProgressAutoSave } from '../hooks/useProgressAutoSave';
@@ -288,6 +289,7 @@ const FoliateViewer: React.FC<{
   };
 
   const { handlePageFlip, handleContinuousScroll } = usePagination(bookKey, viewRef, containerRef);
+  useChapterPull(bookKey, viewRef);
   const mouseHandlers = useMouseEvent(bookKey, handlePageFlip, handleContinuousScroll);
   const touchHandlers = useTouchEvent(bookKey, handlePageFlip, handleContinuousScroll);
 

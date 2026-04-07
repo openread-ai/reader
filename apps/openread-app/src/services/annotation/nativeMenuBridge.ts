@@ -24,6 +24,7 @@ declare global {
         openreadCollectionPicker?: { postMessage: (data: unknown) => void };
         openreadCollectionToolbar?: { postMessage: (data: unknown) => void };
         openreadTextInput?: { postMessage: (data: unknown) => void };
+        openreadChapterPull?: { postMessage: (data: unknown) => void };
       };
     };
   }
