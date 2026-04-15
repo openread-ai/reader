@@ -26,6 +26,8 @@ export interface InstallPackageResponse {
 export interface SetSystemUIVisibilityRequest {
   visible: boolean;
   darkMode: boolean;
+  /** Resolved DaisyUI `base-100` hex — native WebView uses this under translucent system UI (e.g. keyboard). */
+  surfaceColorHex?: string;
 }
 
 export interface SetSystemUIVisibilityResponse {

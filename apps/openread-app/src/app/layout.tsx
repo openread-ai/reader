@@ -49,12 +49,16 @@ export const metadata: Metadata = {
   },
 };
 
+/** WKWebView (Tauri iOS) does not support `interactive-widget` (console: ignored). Web builds keep it. */
+const isTauri = process.env['NEXT_PUBLIC_APP_PLATFORM'] === 'tauri';
+
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
+  ...(!isTauri ? { interactiveWidget: 'resizes-content' as const } : {}),
 };
 
 const jsonLd = {

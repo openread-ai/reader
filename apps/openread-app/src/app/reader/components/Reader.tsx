@@ -20,6 +20,7 @@ import { eventDispatcher } from '@/utils/event';
 import { interceptWindowOpen } from '@/utils/open';
 import { mountAdditionalFonts } from '@/styles/fonts';
 import { isTauriAppPlatform } from '@/services/environment';
+import { getThemeCode } from '@/utils/style';
 import { getSysFontsList, setSystemUIVisibility } from '@/utils/bridge';
 import { AboutWindow } from '@/components/AboutWindow';
 import { UpdaterWindow } from '@/components/UpdaterWindow';
@@ -64,6 +65,7 @@ const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
   const isNotebookPinned = useNotebookStore((s) => s.isNotebookPinned);
   const isNotebookVisible = useNotebookStore((s) => s.isNotebookVisible);
   const isDarkMode = useThemeStore((s) => s.isDarkMode);
+  const themeColor = useThemeStore((s) => s.themeColor);
   const isRoundedWindow = useThemeStore((s) => s.isRoundedWindow);
   const systemUIAlwaysHidden = useThemeStore((s) => s.systemUIAlwaysHidden);
 
@@ -164,22 +166,23 @@ const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
     isNotebookVisible,
   ]);
 
-  const lastSystemUIVisible = React.useRef<boolean | null>(null);
+  const lastReaderSystemUIPayload = React.useRef<string | null>(null);
   useEffect(() => {
     if (!appService?.isMobileApp) return;
     const systemUIVisible = !!hoveredBookKey || settings.alwaysShowStatusBar;
     const visible = !!(systemUIVisible && !systemUIAlwaysHidden);
-    // Skip if visibility hasn't changed — avoids redundant native calls that cause WKWebView flash
-    if (lastSystemUIVisible.current === visible) return;
-    lastSystemUIVisible.current = visible;
-    setSystemUIVisibility({ visible, darkMode: isDarkMode });
+    const surfaceColorHex = getThemeCode().palette['base-100'];
+    const payloadKey = JSON.stringify({ visible, darkMode: isDarkMode, surfaceColorHex });
+    if (lastReaderSystemUIPayload.current === payloadKey) return;
+    lastReaderSystemUIPayload.current = payloadKey;
+    setSystemUIVisibility({ visible, darkMode: isDarkMode, surfaceColorHex });
     if (visible) {
       showSystemUI();
     } else {
       dismissSystemUI();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hoveredBookKey]);
+  }, [hoveredBookKey, isDarkMode, themeColor, settings.alwaysShowStatusBar, systemUIAlwaysHidden]);
 
   return libraryLoaded && settings.globalReadSettings ? (
     <div

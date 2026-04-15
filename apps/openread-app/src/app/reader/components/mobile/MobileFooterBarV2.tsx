@@ -69,6 +69,13 @@ function MobileFooterBarV2({ bookKey }: MobileFooterBarV2Props) {
     }
   }, [useNativeBar, activeSheet]);
 
+  // Called when a chat conversation is selected from the HalfSheet history.
+  // Closes the sheet and hides the footer so only the notebook is visible.
+  const handleConversationSelected = useCallback(() => {
+    handleCloseSheet();
+    setHoveredBookKey('');
+  }, [handleCloseSheet, setHoveredBookKey]);
+
   const buttons: { key: SheetType; label: string; Icon: IconType }[] = [
     { key: 'toc', label: _('Table of Contents'), Icon: IoIosList },
     { key: 'chat', label: _('Chat'), Icon: PiChatCircleBold },
@@ -106,7 +113,12 @@ function MobileFooterBarV2({ bookKey }: MobileFooterBarV2Props) {
       <HalfSheet isOpen={activeSheet !== null} onClose={handleCloseSheet}>
         <div className='min-h-[40vh] flex-1 overflow-y-auto'>
           {activeSheet === 'toc' && <MobileTOCContent bookKey={bookKey} />}
-          {activeSheet === 'chat' && <MobileChatContent bookKey={bookKey} />}
+          {activeSheet === 'chat' && (
+            <MobileChatContent
+              bookKey={bookKey}
+              onConversationSelected={handleConversationSelected}
+            />
+          )}
           {activeSheet === 'settings' && (
             <MobileSettingsContent bookKey={bookKey} onClose={handleCloseSheet} />
           )}

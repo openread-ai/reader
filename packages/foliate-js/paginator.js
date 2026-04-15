@@ -1193,9 +1193,8 @@ export class Paginator extends HTMLElement {
         const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
         if (shouldGo) await this.#goTo({
             index: this.#adjacentIndex(dir),
-            anchor: prev ? () => 1 : () => 0,
+            anchor: prev ? (this.scrolled ? () => 0 : () => 1) : () => 0,
         })
-        if (shouldGo || !this.hasAttribute('animated')) await wait(100)
         this.#locked = false
     }
     async prev(distance) {

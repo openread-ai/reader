@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FaSearch, FaChevronDown } from 'react-icons/fa';
 import { IoMdCloseCircle } from 'react-icons/io';
-import { MdDeleteOutline } from 'react-icons/md';
+import { MdArrowBackIosNew, MdDeleteOutline } from 'react-icons/md';
 
 import { md5 } from 'js-md5';
 import { useEnv } from '@/context/EnvContext';
@@ -31,10 +31,11 @@ const MAX_SEARCH_HISTORY = 10;
 interface SearchBarProps {
   isVisible: boolean;
   bookKey: string;
+  onBack?: () => void;
   onHideSearchBar: () => void;
 }
 
-const SearchBar: React.FC<SearchBarProps> = ({ isVisible, bookKey, onHideSearchBar }) => {
+const SearchBar: React.FC<SearchBarProps> = ({ isVisible, bookKey, onBack, onHideSearchBar }) => {
   const _ = useTranslation();
   const { envConfig, appService } = useEnv();
   const { settings } = useSettingsStore();
@@ -178,9 +179,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ isVisible, bookKey, onHideSearchB
       inputRef.current.onfocus = () => {
         inputFocusedRef.current = true;
       };
-      if (!appService?.isMobile) {
-        inputRef.current.focus();
-      }
+      inputRef.current.focus();
     }
     if (isVisible && searchTerm) {
       handleSearchTermChange(searchTerm);
@@ -331,9 +330,19 @@ const SearchBar: React.FC<SearchBarProps> = ({ isVisible, bookKey, onHideSearchB
   return (
     <div className='relative flex flex-col gap-3 p-2'>
       <div className='bg-base-100 flex h-8 items-center rounded-lg'>
-        <div className='absolute ps-3'>
-          <FaSearch size={iconSize16} className='text-base-content/50' />
-        </div>
+        {onBack ? (
+          <button
+            onClick={onBack}
+            className='flex h-8 w-8 flex-shrink-0 items-center justify-center'
+            aria-label={_('Close')}
+          >
+            <MdArrowBackIosNew size={iconSize16} className='text-base-content' />
+          </button>
+        ) : (
+          <div className='absolute ps-3'>
+            <FaSearch size={iconSize16} className='text-base-content/50' />
+          </div>
+        )}
 
         <input
           ref={inputRef}
@@ -342,45 +351,55 @@ const SearchBar: React.FC<SearchBarProps> = ({ isVisible, bookKey, onHideSearchB
           spellCheck={false}
           onChange={handleInputChange}
           placeholder={_('Search...')}
-          className='search-input w-full bg-transparent p-2 pr-0 ps-10 font-sans text-sm font-light focus:outline-none'
+          className={clsx(
+            'search-input w-full bg-transparent p-2 font-sans text-sm font-light focus:outline-none',
+            onBack ? 'pr-8 ps-0' : 'pr-0 ps-10',
+          )}
         />
 
         {searchTerm && (
           <button
             onClick={handleClearInput}
-            className='absolute end-10 flex h-8 w-8 items-center justify-center bg-transparent'
+            className={clsx(
+              'absolute flex h-8 w-8 items-center justify-center bg-transparent',
+              onBack ? 'end-2' : 'end-10',
+            )}
             aria-label={_('Clear search')}
           >
             <IoMdCloseCircle size={iconSize16} className='text-base-content/75' />
           </button>
         )}
 
-        <div
-          className={clsx(
-            'absolute end-2 flex h-8 w-8 items-center rounded-r-lg',
-            viewSettings?.isEink ? 'bg-transparent' : 'bg-base-300',
-          )}
-        >
-          <Dropdown
-            label={_('Search Options')}
+        {!onBack && (
+          <div
             className={clsx(
-              window.innerWidth < 640 && 'dropdown-end',
-              'dropdown-bottom flex justify-center',
+              'absolute end-2 flex h-8 w-8 items-center rounded-r-lg',
+              viewSettings?.isEink ? 'bg-transparent' : 'bg-base-300',
             )}
-            menuClassName={window.innerWidth < 640 ? 'no-triangle mt-1' : 'dropdown-center mt-3.5'}
-            buttonClassName={clsx(
-              'btn btn-ghost h-8 min-h-8 w-8 p-0 rounded-none rounded-r-lg',
-              viewSettings?.isEink ? '!bg-transparent hover:!bg-transparent' : '',
-            )}
-            toggleButton={<FaChevronDown size={iconSize12} className='text-base-content/50' />}
           >
-            <SearchOptions
-              isEink={!!viewSettings?.isEink}
-              searchConfig={config.searchConfig as BookSearchConfig}
-              onSearchConfigChanged={handleSearchConfigChange}
-            />
-          </Dropdown>
-        </div>
+            <Dropdown
+              label={_('Search Options')}
+              className={clsx(
+                window.innerWidth < 640 && 'dropdown-end',
+                'dropdown-bottom flex justify-center',
+              )}
+              menuClassName={
+                window.innerWidth < 640 ? 'no-triangle mt-1' : 'dropdown-center mt-3.5'
+              }
+              buttonClassName={clsx(
+                'btn btn-ghost h-8 min-h-8 w-8 p-0 rounded-none rounded-r-lg',
+                viewSettings?.isEink ? '!bg-transparent hover:!bg-transparent' : '',
+              )}
+              toggleButton={<FaChevronDown size={iconSize12} className='text-base-content/50' />}
+            >
+              <SearchOptions
+                isEink={!!viewSettings?.isEink}
+                searchConfig={config.searchConfig as BookSearchConfig}
+                onSearchConfigChanged={handleSearchConfigChange}
+              />
+            </Dropdown>
+          </div>
+        )}
       </div>
 
       {searchHistory.length > 0 && !searchTerm && (

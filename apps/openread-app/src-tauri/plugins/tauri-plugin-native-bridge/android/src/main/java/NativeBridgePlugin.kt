@@ -60,6 +60,7 @@ class InstallPackageRequestArgs {
 class SetSystemUIVisibilityRequestArgs {
     var visible: Boolean? = false
     var darkMode: Boolean? = false
+    var surfaceColorHex: String? = null
 }
 
 @InvokeArg
@@ -124,6 +125,7 @@ interface KeyDownInterceptor {
 )
 class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
     private val implementation = NativeBridge()
+    private var webViewRef: WebView? = null
     private var redirectScheme = "openread"
     private var redirectHost = "auth-callback"
     private val billingManager by lazy {
@@ -141,6 +143,7 @@ class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
 
     override fun load(webView: WebView) {
         instance = this
+        webViewRef = webView
         super.load(webView)
         handleIntent(activity.intent)
     }
@@ -327,6 +330,14 @@ class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
             window.statusBarColor = Color.TRANSPARENT
             @Suppress("DEPRECATION")
             window.navigationBarColor = Color.TRANSPARENT
+            args.surfaceColorHex?.let { hex ->
+                try {
+                    val color = Color.parseColor(hex)
+                    webViewRef?.setBackgroundColor(color)
+                } catch (_: IllegalArgumentException) {
+                    // ignore invalid hex
+                }
+            }
             ret.put("success", true)
         } catch (e: Exception) {
             ret.put("success", false)

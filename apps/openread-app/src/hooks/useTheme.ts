@@ -3,6 +3,7 @@ import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { themes, applyCustomTheme, Palette } from '@/styles/themes';
+import { getThemeCode } from '@/utils/style';
 import { getStatusBarHeight, setSystemUIVisibility } from '@/utils/bridge';
 import { getOSPlatform } from '@/utils/misc';
 import { parseWebViewVersion } from '@/utils/ua';
@@ -33,6 +34,7 @@ export const useTheme = ({
   } = useThemeStore();
 
   const useFallbackColors = useRef(false);
+  const lastSystemUIPayload = useRef<string | null>(null);
 
   useEffect(() => {
     updateAppTheme(appThemeColor);
@@ -50,14 +52,19 @@ export const useTheme = ({
     if (!appService?.isMobileApp) return;
 
     const visible = !!(systemUIVisible && !systemUIAlwaysHidden);
+    const surfaceColorHex = getThemeCode().palette['base-100'];
+    const payloadKey = `${visible}|${isDarkMode}|${surfaceColorHex}`;
+    if (lastSystemUIPayload.current === payloadKey) return;
+    lastSystemUIPayload.current = payloadKey;
+
     if (visible) {
       showSystemUI();
     } else {
       dismissSystemUI();
     }
-    setSystemUIVisibility({ visible, darkMode: isDarkMode });
+    setSystemUIVisibility({ visible, darkMode: isDarkMode, surfaceColorHex });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appService, isDarkMode, systemUIVisible]);
+  }, [appService, isDarkMode, systemUIVisible, systemUIAlwaysHidden, themeColor]);
 
   useEffect(() => {
     if (appService?.isMobileApp) {

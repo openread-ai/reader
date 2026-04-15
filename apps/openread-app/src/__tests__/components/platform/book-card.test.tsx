@@ -4,7 +4,7 @@ import React from 'react';
 import { BookCard } from '@/components/platform/book-card';
 import type { Book } from '@/types/book';
 
-// Mock EnvContext
+// Mock EnvContext — BookCard calls useEnv() for appService
 vi.mock('@/context/EnvContext', () => ({
   useEnv: () => ({
     appService: null,

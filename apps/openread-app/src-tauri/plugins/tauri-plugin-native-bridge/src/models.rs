@@ -51,6 +51,9 @@ pub struct InstallPackageResponse {
 pub struct SetSystemUIVisibilityRequest {
     pub visible: bool,
     pub dark_mode: bool,
+    /// Resolved app theme `base-100` (e.g. `#f1e8d0`) for native WebView backing.
+    #[serde(default)]
+    pub surface_color_hex: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

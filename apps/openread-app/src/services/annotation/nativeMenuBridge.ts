@@ -25,10 +25,13 @@ declare global {
         openreadCollectionToolbar?: { postMessage: (data: unknown) => void };
         openreadTextInput?: { postMessage: (data: unknown) => void };
         openreadChapterPull?: { postMessage: (data: unknown) => void };
+        openreadChatComposer?: { postMessage: (data: unknown) => void };
       };
     };
   }
 }
+
+export type ChatComposerAction = 'show' | 'hide' | 'running' | 'disabled';
 
 /**
  * Global callback invoked by native code (iOS Swift / Android Kotlin)
@@ -159,5 +162,23 @@ export function setNativeFooterActiveTab(tab: string | null): void {
   window.webkit?.messageHandlers?.openreadFooterVisible?.postMessage({
     visible: true,
     activeTab: tab,
+  });
+}
+
+/** Send an action to the native iOS UIKit AI chat composer (show/hide/running/disabled). */
+export function postChatComposer(action: ChatComposerAction, value?: boolean): void {
+  window.webkit?.messageHandlers?.openreadChatComposer?.postMessage({ action, value });
+}
+
+/** Update the native iOS chapter pull indicator. */
+export function postChapterPull(
+  direction: 'next' | 'prev',
+  progress: number,
+  committed?: boolean,
+): void {
+  window.webkit?.messageHandlers?.openreadChapterPull?.postMessage({
+    direction,
+    progress,
+    ...(committed !== undefined && { committed }),
   });
 }

@@ -9,6 +9,7 @@ import {
   type ThreadHistoryAdapter,
 } from '@assistant-ui/react';
 
+import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useBookDataStore } from '@/store/bookDataStore';
@@ -305,6 +306,7 @@ const ThreadWrapper = ({
   onSelectModel?: (modelId: string) => void;
 }) => {
   const _ = useTranslation();
+  const { appService } = useEnv();
   const assistantRuntime = useAssistantRuntime();
   const { createConversation, pendingQuestion, setPendingQuestion } = useAIChatStore();
   const { primaryBookHash, getParallelHashes } = usePrimaryBookHash(bookKey);
@@ -339,6 +341,7 @@ const ThreadWrapper = ({
       byokProvider={byokProvider}
       byokModel={byokModel}
       onSelectModel={onSelectModel}
+      composerKeyboardAvoidance={!!appService?.isMobile}
     />
   );
 };

@@ -12,7 +12,6 @@ import { useCustomFontStore } from '@/store/customFontStore';
 import { useParallelViewStore } from '@/store/parallelViewStore';
 import { useMouseEvent, useTouchEvent } from '../hooks/useIframeEvents';
 import { usePagination } from '../hooks/usePagination';
-import { useChapterPull } from '../hooks/useChapterPull';
 import { useFoliateEvents } from '../hooks/useFoliateEvents';
 import { useProgressSync } from '../hooks/useProgressSync';
 import { useProgressAutoSave } from '../hooks/useProgressAutoSave';
@@ -32,6 +31,7 @@ import {
   keepTextAlignment,
   transformStylesheet,
 } from '@/utils/style';
+import { postChapterPull } from '@/services/annotation/nativeMenuBridge';
 import { mountAdditionalFonts, mountCustomFont } from '@/styles/fonts';
 import { getBookDirFromLanguage, getBookDirFromWritingMode } from '@/utils/book';
 import { useUICSS } from '@/hooks/useUICSS';
@@ -45,6 +45,7 @@ import {
   handleTouchStart,
   handleTouchMove,
   handleTouchEnd,
+  handleTouchCancel,
 } from '../utils/iframeEventHandlers';
 import { getMaxInlineSize } from '@/utils/config';
 import { getDirFromUILanguage } from '@/utils/rtl';
@@ -251,6 +252,7 @@ const FoliateViewer: React.FC<{
         detail.doc.addEventListener('touchstart', handleTouchStart.bind(null, bookKey));
         detail.doc.addEventListener('touchmove', handleTouchMove.bind(null, bookKey));
         detail.doc.addEventListener('touchend', handleTouchEnd.bind(null, bookKey));
+        detail.doc.addEventListener('touchcancel', handleTouchCancel.bind(null, bookKey));
       }
     }
   };
@@ -289,7 +291,6 @@ const FoliateViewer: React.FC<{
   };
 
   const { handlePageFlip, handleContinuousScroll } = usePagination(bookKey, viewRef, containerRef);
-  useChapterPull(bookKey, viewRef);
   const mouseHandlers = useMouseEvent(bookKey, handlePageFlip, handleContinuousScroll);
   const touchHandlers = useTouchEvent(bookKey, handlePageFlip, handleContinuousScroll);
 
@@ -334,6 +335,112 @@ const FoliateViewer: React.FC<{
       // make sure we can listen renderer events after opening book
       viewRef.current = view;
       setFoliateView(bookKey, view);
+      // Expose view for native Swift pull-to-load (calls view.next()/prev())
+      (window as unknown as Record<string, unknown>).readerView = view;
+
+      // Pull-to-load chapter transition: touch events originate inside the
+      // iframe (book content) and don't cross iframe boundaries. The existing
+      // iframeEventHandlers.ts relay forwards them as iframe-touchstart/move/end
+      // messages on window. We listen for those and read scroll boundaries from
+      // the paginator's #container (shadow DOM, overflow:auto).
+      if (appService?.isMobile) {
+        const pullThreshold = 80;
+        const container = (view.renderer as unknown as HTMLElement)?.shadowRoot?.getElementById(
+          'container',
+        );
+        if (container) {
+          let touchStartY = 0;
+          let lastPullDirection = '';
+          let lastPullProgress = 0;
+          let committed = false;
+          let rubberBandKilled = false;
+
+          // Drives the chapter transition directly in JS (no bridge round-trip) and notifies
+          // native of the commit. Errors swallowed so a failed transition doesn't strand the reader.
+          const commitChapterPull = (direction: 'next' | 'prev') => {
+            Promise.resolve(direction === 'next' ? view.next() : view.prev()).catch(() => {});
+            postChapterPull(direction, 1, true);
+          };
+
+          const handlePullMessage = (msg: MessageEvent) => {
+            if (!msg.data || msg.data.bookKey !== bookKey) return;
+            const { type, targetTouches } = msg.data;
+
+            if (type === 'iframe-touchstart') {
+              const touch = targetTouches?.[0];
+              if (touch) touchStartY = touch.screenY;
+              lastPullDirection = '';
+              lastPullProgress = 0;
+              committed = false;
+              rubberBandKilled = false;
+            } else if (type === 'iframe-touchmove') {
+              if (committed) return; // already fired for this gesture
+              const touch = targetTouches?.[0];
+              if (!touch) return;
+              const dy = touch.screenY - touchStartY;
+              const atTop = container.scrollTop <= 2;
+              const atBottom =
+                container.scrollHeight - container.scrollTop - container.clientHeight <= 2;
+              if (atTop && dy > 0) {
+                lastPullDirection = 'prev';
+                lastPullProgress = Math.min(1, dy / pullThreshold);
+                // Kill rubber-band on FIRST boundary touch so finger maps
+                // 1:1 to dy (iOS bounce absorbs ~60-70% of movement otherwise)
+                if (!rubberBandKilled) {
+                  rubberBandKilled = true;
+                  container.style.overscrollBehavior = 'none';
+                }
+              } else if (atBottom && dy < 0) {
+                lastPullDirection = 'next';
+                lastPullProgress = Math.min(1, -dy / pullThreshold);
+                if (!rubberBandKilled) {
+                  rubberBandKilled = true;
+                  container.style.overscrollBehavior = 'none';
+                }
+              } else {
+                lastPullDirection = '';
+                lastPullProgress = 0;
+                if (rubberBandKilled) {
+                  rubberBandKilled = false;
+                  container.style.overscrollBehavior = '';
+                }
+              }
+
+              // On iOS, pulling past the boundary of a CSS overflow:auto container can fire
+              // touchcancel instead of touchend, so commit on the first threshold crossing.
+              if (lastPullDirection && lastPullProgress >= 1) {
+                commitChapterPull(lastPullDirection as 'next' | 'prev');
+                committed = true;
+              } else {
+                window.webkit?.messageHandlers?.openreadChapterPull?.postMessage({
+                  direction: lastPullDirection,
+                  progress: lastPullProgress,
+                });
+              }
+            } else if (type === 'iframe-touchend' || type === 'iframe-touchcancel') {
+              if (rubberBandKilled) {
+                rubberBandKilled = false;
+                container.style.overscrollBehavior = '';
+              }
+              if (!committed && lastPullDirection && lastPullProgress >= 1) {
+                commitChapterPull(lastPullDirection as 'next' | 'prev');
+                committed = true;
+              } else if (!committed && lastPullDirection) {
+                // Only send reset if a pull was actually in progress.
+                // Skip for plain taps to avoid interfering with menu toggle.
+                window.webkit?.messageHandlers?.openreadChapterPull?.postMessage({
+                  direction: '',
+                  progress: 0,
+                  committed: false,
+                });
+              }
+              lastPullDirection = '';
+              lastPullProgress = 0;
+            }
+          };
+          window.addEventListener('message', handlePullMessage);
+        }
+      }
 
       const { book } = view;
 

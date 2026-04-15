@@ -264,7 +264,7 @@ const Notebook: React.FC = ({}) => {
                 top: 0,
                 left: 0,
                 width: '100vw',
-                height: '100vh',
+                height: '100dvh',
                 maxWidth: '100vw',
                 paddingTop: `${safeAreaInsets?.top || 0}px`,
                 paddingBottom: `${(safeAreaInsets?.bottom || 0) / 2}px`,
@@ -327,7 +327,7 @@ const Notebook: React.FC = ({}) => {
           )}
         </div>
         {notebookActiveTab === 'ai' ? (
-          <div className='flex min-h-0 flex-1 flex-col'>
+          <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
             <AIAssistant key={activeConversationId ?? 'new'} bookKey={sideBarBookKey} />
           </div>
         ) : (

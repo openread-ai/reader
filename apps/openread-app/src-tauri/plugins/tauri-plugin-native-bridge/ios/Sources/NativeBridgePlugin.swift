@@ -12,6 +12,23 @@ import os
 
 private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "NativeBridge")
 
+extension UIColor {
+  /// `#RRGGBB` from app theme (`base-100`).
+  convenience init?(openreadHex: String) {
+    var s = openreadHex.trimmingCharacters(in: .whitespacesAndNewlines)
+    if s.hasPrefix("#") {
+      s.removeFirst()
+    }
+    guard s.count == 6, let v = UInt32(s, radix: 16) else {
+      return nil
+    }
+    let r = CGFloat((v >> 16) & 0xff) / 255
+    let g = CGFloat((v >> 8) & 0xff) / 255
+    let b = CGFloat(v & 0xff) / 255
+    self.init(red: r, green: g, blue: b, alpha: 1)
+  }
+}
+
 func getLocalizedDisplayName(familyName: String) -> String? {
   let fontDescriptor = CTFontDescriptorCreateWithAttributes(
     [
@@ -38,6 +55,7 @@ class UseBackgroundAudioRequestArgs: Decodable {
 class SetSystemUIVisibilityRequestArgs: Decodable {
   let visible: Bool
   let darkMode: Bool
+  let surfaceColorHex: String?
 }
 
 class InterceptKeysRequestArgs: Decodable {
@@ -1357,6 +1375,215 @@ class NativeFooterTabBar: UITabBar, UITabBarDelegate {
   }
 }
 
+// MARK: - Native AI Chat Composer (keyboardLayoutGuide)
+// Replaces the web-based composer on iOS to eliminate WKWebView keyboard-avoidance issues.
+// UIKit handles all keyboard positioning automatically via keyboardLayoutGuide.
+
+final class NativeChatComposer: UIView, UITextViewDelegate {
+  private weak var webView: WKWebView?
+  private let textView = UITextView()
+  private let sendButton = UIButton(type: .system)
+  private let placeholderLabel = UILabel()
+  private var textViewHeightConstraint: NSLayoutConstraint!
+  private let maxTextViewHeight: CGFloat = 120
+  private let minTextViewHeight: CGFloat = 42
+
+  private static let symbolConfig = UIImage.SymbolConfiguration(pointSize: 28, weight: .medium)
+  private static let sendImage = UIImage(systemName: "arrow.up.circle.fill")?.withConfiguration(symbolConfig)
+  private static let stopImage = UIImage(systemName: "stop.circle.fill")?.withConfiguration(symbolConfig)
+
+  private var lastIsRunning: Bool?
+  private var lastShouldShow: Bool?
+  private var cachedHeight: CGFloat
+
+  var isRunning = false {
+    didSet { updateSendButton() }
+  }
+
+  var isDisabled = false {
+    didSet {
+      textView.isEditable = !isDisabled
+      placeholderLabel.text = isDisabled ? "Daily limit reached" : "Ask about this book..."
+      updateSendButton()
+    }
+  }
+
+  override var intrinsicContentSize: CGSize {
+    CGSize(width: UIView.noIntrinsicMetric, height: cachedHeight)
+  }
+
+  private func recalculateHeight() -> CGFloat {
+    let textHeight = textView.sizeThatFits(
+      CGSize(width: textView.frame.width > 0 ? textView.frame.width : 280, height: .greatestFiniteMagnitude)
+    ).height
+    let clampedText = min(max(textHeight, minTextViewHeight), maxTextViewHeight)
+    return clampedText + 16
+  }
+
+  init(webView: WKWebView) {
+    self.webView = webView
+    self.cachedHeight = 42 + 16
+    super.init(frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 52))
+    autoresizingMask = .flexibleWidth
+    setupView()
+  }
+
+  required init?(coder: NSCoder) { fatalError() }
+
+  func applyThemeColor(_ baseColor: UIColor) {
+    backgroundColor = .clear
+    var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    baseColor.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+    let isDark = b < 0.5
+    let fg: UIColor = isDark ? .white : .black
+    textView.textColor = fg
+    textView.backgroundColor = fg.withAlphaComponent(0.08)
+    textView.layer.borderColor = fg.withAlphaComponent(0.10).cgColor
+    placeholderLabel.textColor = fg.withAlphaComponent(0.30)
+    sendButton.tintColor = fg
+    textView.tintColor = fg.withAlphaComponent(0.6)
+    textView.keyboardAppearance = isDark ? .dark : .light
+  }
+
+  private func setupView() {
+    textView.translatesAutoresizingMaskIntoConstraints = false
+    textView.font = .systemFont(ofSize: 16)
+    textView.layer.cornerRadius = 22
+    textView.layer.borderWidth = 0.5
+    textView.layer.masksToBounds = false
+    textView.layer.shadowColor = UIColor.black.cgColor
+    textView.layer.shadowOpacity = 0.2
+    textView.layer.shadowOffset = CGSize(width: 0, height: 1)
+    textView.layer.shadowRadius = 6
+    textView.textContainerInset = UIEdgeInsets(top: 11, left: 16, bottom: 11, right: 44)
+    textView.isScrollEnabled = false
+    textView.delegate = self
+    textView.returnKeyType = .send
+    textView.enablesReturnKeyAutomatically = true
+    addSubview(textView)
+
+    placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+    placeholderLabel.text = "Ask about this book..."
+    placeholderLabel.font = .systemFont(ofSize: 16)
+    addSubview(placeholderLabel)
+
+    sendButton.translatesAutoresizingMaskIntoConstraints = false
+    sendButton.setImage(NativeChatComposer.sendImage, for: .normal)
+    sendButton.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
+    addSubview(sendButton)
+
+    textViewHeightConstraint = textView.heightAnchor.constraint(equalToConstant: minTextViewHeight)
+
+    NSLayoutConstraint.activate([
+      textView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+      textView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+      textView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+      textView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+      textViewHeightConstraint,
+
+      placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 20),
+      placeholderLabel.centerYAnchor.constraint(equalTo: textView.centerYAnchor),
+
+      sendButton.trailingAnchor.constraint(equalTo: textView.trailingAnchor, constant: -8),
+      sendButton.bottomAnchor.constraint(equalTo: textView.bottomAnchor, constant: -6),
+      sendButton.widthAnchor.constraint(equalToConstant: 30),
+      sendButton.heightAnchor.constraint(equalToConstant: 30),
+    ])
+
+    applyThemeColor(.black)
+    updateSendButton()
+  }
+
+  private func updateSendButton() {
+    let hasText = !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+    if isRunning != lastIsRunning {
+      sendButton.setImage(
+        isRunning ? NativeChatComposer.stopImage : NativeChatComposer.sendImage,
+        for: .normal
+      )
+      lastIsRunning = isRunning
+    }
+
+    if isRunning {
+      if lastShouldShow != true {
+        sendButton.alpha = 1.0
+        sendButton.transform = .identity
+        sendButton.isHidden = false
+        sendButton.isEnabled = true
+        lastShouldShow = true
+      }
+      return
+    }
+
+    let shouldShow = hasText && !isDisabled
+    sendButton.isEnabled = shouldShow
+    if shouldShow == lastShouldShow { return }
+    lastShouldShow = shouldShow
+    UIView.animate(withDuration: 0.15) {
+      self.sendButton.alpha = shouldShow ? 1.0 : 0.0
+      self.sendButton.transform = shouldShow ? .identity : CGAffineTransform(scaleX: 0.8, y: 0.8)
+    }
+  }
+
+  @objc private func sendTapped() {
+    if isRunning {
+      // Cancel the running generation
+      webView?.evaluateJavaScript("window.__openreadNativeChatCancel?.()") { _, _ in }
+      return
+    }
+    let text = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty else { return }
+
+    // Escape for JS string literal
+    let escaped = text
+      .replacingOccurrences(of: "\\", with: "\\\\")
+      .replacingOccurrences(of: "'", with: "\\'")
+      .replacingOccurrences(of: "\n", with: "\\n")
+      .replacingOccurrences(of: "\r", with: "")
+
+    webView?.evaluateJavaScript("window.__openreadNativeChatSend?.('\(escaped)')") { _, _ in }
+    textView.text = ""
+    placeholderLabel.isHidden = false
+    textViewDidChange(textView)
+  }
+
+  // MARK: UITextViewDelegate
+
+  func textViewDidChange(_ textView: UITextView) {
+    placeholderLabel.isHidden = !textView.text.isEmpty
+    updateSendButton()
+
+    let size = textView.sizeThatFits(
+      CGSize(width: textView.frame.width, height: .greatestFiniteMagnitude))
+    let newHeight = min(max(size.height, minTextViewHeight), maxTextViewHeight)
+    textView.isScrollEnabled = size.height > maxTextViewHeight
+    cachedHeight = newHeight + 16
+
+    if textViewHeightConstraint.constant != newHeight {
+      textViewHeightConstraint.constant = newHeight
+      invalidateIntrinsicContentSize()
+      UIView.animate(withDuration: 0.15) {
+        self.superview?.layoutIfNeeded()
+      }
+    }
+  }
+
+  func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+    // Return key sends (unless shift+return for newline)
+    if text == "\n" {
+      sendTapped()
+      return false
+    }
+    return true
+  }
+
+  /// Dismiss the keyboard.
+  func deactivate() {
+    textView.resignFirstResponder()
+  }
+}
+
 // MARK: - Custom Edit Menu Items for WKWebView Text Selection
 // Adds Highlight, Add Note, Search in Book to the iOS native edit menu.
 // These methods are found via the UIResponder chain when text is selected.
@@ -1395,6 +1622,8 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
   private var chapterPullBottomWidth: NSLayoutConstraint?
   private var chapterPullTopWidth: NSLayoutConstraint?
   private var urlObservation: NSKeyValueObservation?
+  /// Native AI chat composer — replaces web composer on iOS to avoid WKWebView keyboard issues.
+  private var chatComposer: NativeChatComposer?
 
   /// Show native rename alert with text field.
   private func showRenameAlert(bookHash: String, currentTitle: String) {
@@ -1488,6 +1717,50 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
       self.footerBar?.transform = .identity
     }
     footerBar?.resetSelection()
+  }
+
+  /// Constraint pinning the composer bottom to the keyboard layout guide top.
+  private var composerBottomConstraint: NSLayoutConstraint?
+
+  /// Show the native AI chat composer pinned above the keyboard via keyboardLayoutGuide.
+  private func showChatComposer() {
+    guard let webView = webView, let composer = chatComposer else { return }
+    guard composer.superview == nil else { return }  // already shown
+
+    guard let parent = webView.superview else { return }
+    composer.translatesAutoresizingMaskIntoConstraints = false
+    parent.addSubview(composer)
+
+    // Pin to keyboard layout guide — UIKit animates this automatically with the keyboard.
+    let bottomConstraint = composer.bottomAnchor.constraint(
+      equalTo: parent.keyboardLayoutGuide.topAnchor)
+    composerBottomConstraint = bottomConstraint
+
+    NSLayoutConstraint.activate([
+      composer.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+      composer.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
+      bottomConstraint,
+    ])
+
+    // Hide the native footer bar while the composer is visible
+    hideFooterBar()
+
+    composer.alpha = 0
+    UIView.animate(withDuration: 0.2) { composer.alpha = 1 }
+    logger.log("NativeBridgePlugin: Chat composer shown (keyboardLayoutGuide)")
+  }
+
+  /// Hide the native AI chat composer.
+  private func hideChatComposer() {
+    guard let composer = chatComposer else { return }
+    composer.deactivate()
+    composerBottomConstraint = nil
+    UIView.animate(withDuration: 0.15, animations: {
+      composer.alpha = 0
+    }) { _ in
+      composer.removeFromSuperview()
+    }
+    logger.log("NativeBridgePlugin: Chat composer hidden")
   }
 
   // WKScriptMessageHandler — receives messages from JS (main frame only)
@@ -1619,25 +1892,55 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
     case "openreadChapterPull":
       let direction = body["direction"] as? String ?? ""
       let progress = CGFloat(body["progress"] as? Double ?? 0)
+      let committed = body["committed"] as? Bool ?? false
       let maxWidth = (self.webView?.bounds.width ?? 390) * 0.92
-      if direction == "next" {
+
+      if committed && !direction.isEmpty {
+        // Haptic + indicator reset only — chapter transition is called
+        // directly in JS (no bridge round-trip needed)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        // Animate indicator back to zero
+        UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseOut) {
+          self.chapterPullBottom?.alpha = 0
+          self.chapterPullTop?.alpha = 0
+          self.chapterPullBottomWidth?.constant = 0
+          self.chapterPullTopWidth?.constant = 0
+          self.chapterPullTop?.superview?.layoutIfNeeded()
+        }
+      } else if direction == "next" {
         chapterPullTop?.alpha = 0
-        chapterPullTopWidth?.constant = 0
         chapterPullBottom?.alpha = progress > 0 ? 1 : 0
         chapterPullBottomWidth?.constant = progress * maxWidth
-        chapterPullBottom?.superview?.layoutIfNeeded()
+        UIView.performWithoutAnimation { self.chapterPullBottom?.superview?.layoutIfNeeded() }
       } else if direction == "prev" {
         chapterPullBottom?.alpha = 0
-        chapterPullBottomWidth?.constant = 0
         chapterPullTop?.alpha = progress > 0 ? 1 : 0
         chapterPullTopWidth?.constant = progress * maxWidth
-        chapterPullTop?.superview?.layoutIfNeeded()
+        UIView.performWithoutAnimation { self.chapterPullTop?.superview?.layoutIfNeeded() }
       } else {
-        chapterPullBottom?.alpha = 0
-        chapterPullBottomWidth?.constant = 0
-        chapterPullTop?.alpha = 0
-        chapterPullTopWidth?.constant = 0
-        chapterPullBottom?.superview?.layoutIfNeeded()
+        // Reset
+        UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseOut) {
+          self.chapterPullBottom?.alpha = 0
+          self.chapterPullTop?.alpha = 0
+          self.chapterPullBottomWidth?.constant = 0
+          self.chapterPullTopWidth?.constant = 0
+          self.chapterPullTop?.superview?.layoutIfNeeded()
+        }
+      }
+
+    case "openreadChatComposer":
+      let action = body["action"] as? String ?? ""
+      switch action {
+      case "show":
+        showChatComposer()
+      case "hide":
+        hideChatComposer()
+      case "running":
+        chatComposer?.isRunning = body["value"] as? Bool ?? false
+      case "disabled":
+        chatComposer?.isDisabled = body["value"] as? Bool ?? false
+      default:
+        break
       }
 
     default:
@@ -1648,6 +1951,10 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
   @objc public override func load(webview: WKWebView) {
     self.webView = webview
     logger.log("NativeBridgePlugin loaded")
+
+    // The native chat composer pins to keyboardLayoutGuide; disable the default
+    // WKWebView content-inset so it doesn't add a second keyboard-height pad on top.
+    webview.scrollView.contentInsetAdjustmentBehavior = .never
 
     // Register custom items in the iOS text selection edit menu.
     // UIMenuController.menuItems is deprecated (iOS 16) but remains the only
@@ -1674,7 +1981,12 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
     contentController.add(self, name: "openreadCollectionToolbar")
     contentController.add(self, name: "openreadTextInput")
     contentController.add(self, name: "openreadChapterPull")
+    contentController.add(self, name: "openreadChatComposer")
     logger.log("NativeBridgePlugin: JS message handlers registered")
+
+    // Native AI chat composer — created eagerly, shown/hidden by JS messages.
+    let composer = NativeChatComposer(webView: webview)
+    self.chatComposer = composer
 
     // Native color picker overlay — added to the key window's root view
     // so it floats above everything and uses screen coordinates directly
@@ -1971,12 +2283,22 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
     logger.log("Auth session start result: \(started)")
   }
 
+  /// Match `WKWebView` / scroll view backing to app `base-100` (visible through translucent keyboard, etc.).
+  private func applyThemeSurfaceToWebView(hex: String?) {
+    guard let webView = self.webView else { return }
+    guard let hex, let color = UIColor(openreadHex: hex) else { return }
+    webView.backgroundColor = color
+    webView.scrollView.backgroundColor = color
+    chatComposer?.applyThemeColor(color)
+  }
+
   @objc public func set_system_ui_visibility(_ invoke: Invoke) throws {
     let args = try invoke.parseArgs(SetSystemUIVisibilityRequestArgs.self)
     let visible = args.visible
     let darkMode = args.darkMode
 
-    DispatchQueue.main.async {
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
       UIApplication.shared.setStatusBarHidden(!visible, with: .none)
 
       let windows = UIApplication.shared.connectedScenes
@@ -1996,6 +2318,7 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
       } else {
         logger.error("No key window found")
       }
+      self.applyThemeSurfaceToWebView(hex: args.surfaceColorHex)
     }
     invoke.resolve(["success": true])
   }

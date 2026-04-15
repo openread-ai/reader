@@ -267,3 +267,7 @@ export const handleTouchMove = (bookKey: string, event: TouchEvent) => {
 export const handleTouchEnd = (bookKey: string, event: TouchEvent) => {
   handleTouchEv(bookKey, event, 'iframe-touchend');
 };
+
+export const handleTouchCancel = (bookKey: string, event: TouchEvent) => {
+  handleTouchEv(bookKey, event, 'iframe-touchcancel');
+};

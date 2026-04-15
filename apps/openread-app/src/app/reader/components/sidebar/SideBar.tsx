@@ -36,13 +36,13 @@ const SideBar: React.FC<{
   const { sideBarBookKey, setSideBarBookKey, getSearchNavState, setSearchTerm, clearSearch } =
     useSidebarStore();
   const searchNavState = sideBarBookKey ? getSearchNavState(sideBarBookKey) : null;
-  const { searchTerm = '', searchResults = null } = searchNavState || {};
+  const { searchTerm = '', searchResults = null, searchProgress = 1 } = searchNavState || {};
   const { getBookData } = useBookDataStore();
-  const { getView, getViewSettings } = useReaderStore();
+  const { getView, getViewSettings, setHoveredBookKey } = useReaderStore();
   const [isSearchBarVisible, setIsSearchBarVisible] = useState(false);
   const searchTermRef = useRef(searchTerm);
   const sidebarHeight = useRef(1.0);
-  const isMobile = window.innerWidth < 640;
+  const isMobile = appService?.isMobile || window.innerWidth < 640;
   const {
     sideBarWidth,
     isSideBarPinned,
@@ -61,6 +61,10 @@ const SideBar: React.FC<{
     setSideBarVisible(true);
     setSideBarBookKey(bookKey);
     setIsSearchBarVisible(true);
+    // On mobile, dismiss header/footer (incl. native UITabBar) so search is full-screen
+    if (isMobile) {
+      setHoveredBookKey('');
+    }
     if (term !== undefined && term !== null) {
       setSearchTerm(bookKey, term);
     }
@@ -201,6 +205,11 @@ const SideBar: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sideBarBookKey, clearSearch]);
 
+  const handleBackFromSearch = useCallback(() => {
+    handleHideSearchBar();
+    setSideBarVisible(false);
+  }, [handleHideSearchBar, setSideBarVisible]);
+
   const handleHideSideBar = useCallback(() => {
     if (searchTermRef.current) {
       handleHideSearchBar();
@@ -217,6 +226,10 @@ const SideBar: React.FC<{
   const handleSearchResultClick = (cfi: string) => {
     onNavigateEvent();
     getView(sideBarBookKey)?.goTo(cfi);
+    // On mobile, clear search highlights after navigating to result
+    if (isMobile) {
+      handleHideSearchBar();
+    }
   };
 
   if (!sideBarBookKey) return null;
@@ -287,7 +300,7 @@ const SideBar: React.FC<{
           onKeyDown={handleDragKeyDown}
         ></div>
         <div className='flex-shrink-0'>
-          {isMobile && (
+          {isMobile && !isSearchBarVisible && (
             <div
               role='slider'
               tabIndex={0}
@@ -301,14 +314,16 @@ const SideBar: React.FC<{
               <div className='bg-base-content/50 h-1 w-10 rounded-full'></div>
             </div>
           )}
-          <SidebarHeader
-            isPinned={isSideBarPinned}
-            isSearchBarVisible={isSearchBarVisible}
-            onGoToLibrary={onGoToLibrary}
-            onClose={() => setSideBarVisible(false)}
-            onTogglePin={handleSideBarTogglePin}
-            onToggleSearchBar={handleToggleSearchBar}
-          />
+          {!(isMobile && isSearchBarVisible) && (
+            <SidebarHeader
+              isPinned={isSideBarPinned}
+              isSearchBarVisible={isSearchBarVisible}
+              onGoToLibrary={onGoToLibrary}
+              onClose={() => setSideBarVisible(false)}
+              onTogglePin={handleSideBarTogglePin}
+              onToggleSearchBar={handleToggleSearchBar}
+            />
+          )}
           <div
             className={clsx('search-bar', {
               'search-bar-visible': isSearchBarVisible,
@@ -317,6 +332,7 @@ const SideBar: React.FC<{
             <SearchBar
               isVisible={isSearchBarVisible}
               bookKey={sideBarBookKey!}
+              onBack={isMobile && isSearchBarVisible ? handleBackFromSearch : undefined}
               onHideSearchBar={handleHideSearchBar}
             />
           </div>
@@ -324,7 +340,27 @@ const SideBar: React.FC<{
             <BookCard book={book} />
           </div>
         </div>
-        {isSearchBarVisible && searchResults ? (
+        {isMobile && isSearchBarVisible ? (
+          searchResults ? (
+            <SearchResults
+              bookKey={sideBarBookKey!}
+              results={searchResults}
+              onSelectResult={handleSearchResultClick}
+            />
+          ) : searchTerm && searchProgress < 1 ? (
+            <div className='flex flex-col items-center gap-3 p-6'>
+              <div className='bg-base-300 h-1 w-full overflow-hidden rounded-full'>
+                <div
+                  className='bg-primary h-full rounded-full transition-all duration-300'
+                  style={{ width: `${Math.max(5, searchProgress * 100)}%` }}
+                />
+              </div>
+              <span className='text-base-content/50 text-xs'>
+                {_('Searching...')} {Math.round(searchProgress * 100)}%
+              </span>
+            </div>
+          ) : null
+        ) : isSearchBarVisible && searchResults ? (
           <SearchResults
             bookKey={sideBarBookKey!}
             results={searchResults}

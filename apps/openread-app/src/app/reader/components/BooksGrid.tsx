@@ -95,6 +95,13 @@ const BooksGrid: React.FC<BooksGridProps> = ({ bookKeys, onCloseBook }) => {
   const [progressOverlayBookKey, setProgressOverlayBookKey] = useState<string | null>(null);
   const handleCloseProgressOverlay = useCallback(() => setProgressOverlayBookKey(null), []);
 
+  // Close progress overlay when the header bar hides (iOS only)
+  useEffect(() => {
+    if (appService?.isIOSApp && !hoveredBookKey && progressOverlayBookKey) {
+      setProgressOverlayBookKey(null);
+    }
+  }, [appService?.isIOSApp, hoveredBookKey, progressOverlayBookKey]);
+
   const screenInsets = useThemeStore((s) => s.safeAreaInsets);
   const aspectRatio = window.innerWidth / window.innerHeight;
   const gridTemplate = getGridTemplate(bookKeys.length, aspectRatio);

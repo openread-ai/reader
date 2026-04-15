@@ -96,9 +96,10 @@ const BookBadge: React.FC<{
 
 interface ChatHistoryViewProps {
   bookKey: string;
+  onConversationSelected?: () => void;
 }
 
-const ChatHistoryView: React.FC<ChatHistoryViewProps> = ({ bookKey }) => {
+const ChatHistoryView: React.FC<ChatHistoryViewProps> = ({ bookKey, onConversationSelected }) => {
   const _ = useTranslation();
   const { appService, envConfig } = useEnv();
   const {
@@ -136,6 +137,7 @@ const ChatHistoryView: React.FC<ChatHistoryViewProps> = ({ bookKey }) => {
   const handleSelectConversation = useCallback(
     async (conversation: AIConversation) => {
       await setActiveConversation(conversation.id);
+      onConversationSelected?.();
       setNotebookVisible(true);
       setNotebookActiveTab('ai');
 
@@ -163,6 +165,7 @@ const ChatHistoryView: React.FC<ChatHistoryViewProps> = ({ bookKey }) => {
     },
     [
       setActiveConversation,
+      onConversationSelected,
       setNotebookVisible,
       setNotebookActiveTab,
       bookKeys,

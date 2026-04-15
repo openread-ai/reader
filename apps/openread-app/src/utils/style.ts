@@ -763,6 +763,19 @@ export const applyScrollModeClass = (document: Document, isScrollMode: boolean) 
 
 export const applyImageStyle = (document: Document) => {
   document.querySelectorAll('img').forEach((img) => {
+    // Hide broken images instead of showing the browser's broken-image icon
+    img.addEventListener(
+      'error',
+      () => {
+        img.style.display = 'none';
+      },
+      { once: true },
+    );
+    // Catch images that already errored before this handler was attached
+    if (img.complete && img.naturalWidth === 0 && img.src) {
+      img.style.display = 'none';
+    }
+
     const widthAttr = img.getAttribute('width');
     if (widthAttr && (widthAttr.endsWith('%') || widthAttr.endsWith('vw'))) {
       const percentage = parseFloat(widthAttr);
