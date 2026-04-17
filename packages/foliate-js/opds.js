@@ -154,12 +154,15 @@ export const getPublication = entry => {
     const linksByRel = groupByArray(links, link => link.rel)
     return {
         metadata: {
+            id: children.find(filter('id'))?.textContent,
             title: children.find(filter('title'))?.textContent ?? '',
             author: children.filter(filter('author')).map(getPerson),
             contributor: children.filter(filter('contributor')).map(getPerson),
             publisher: children.find(filterDC('publisher'))?.textContent,
-            published: (children.find(filterDCTERMS('issued'))
+            published: (children.find(filter('published'))
+                ?? children.find(filterDCTERMS('issued'))
                 ?? children.find(filterDC('date')))?.textContent,
+            updated: children.find(filter('updated'))?.textContent,
             language: children.find(filterDC('language'))?.textContent,
             identifier: children.find(filterDC('identifier'))?.textContent,
             subject: children.filter(filter('category')).map(category => ({
@@ -168,6 +171,8 @@ export const getPublication = entry => {
                 scheme: category.getAttribute('scheme'),
             })),
             rights: children.find(filter('rights'))?.textContent ?? '',
+            content: getContent(children.find(filter('content'))
+                ?? children.find(filter('summary'))),
             [SYMBOL.CONTENT]: getContent(children.find(filter('content'))
                 ?? children.find(filter('summary'))),
         },
@@ -213,22 +218,27 @@ export const getFeed = doc => {
         else groupedItems.set(groupLink.href, [item])
     }
     const [items, ...groups] = Array.from(groupedItems, ([key, items]) => {
-        const itemsKey = items[0]?.metadata ? 'publications' : 'navigation'
-        if (key == null) return { [itemsKey]: items }
-        const link = groupLinkMap.get(key)
-        return {
-            metadata: {
+        const publications = items.filter(item => item.metadata)
+        const navigation = items.filter(item => !item.metadata)
+        const result = {}
+        if (publications.length) result.publications = publications
+        if (navigation.length) result.navigation = navigation
+        if (key != null) {
+            const link = groupLinkMap.get(key)
+            result.metadata = {
                 title: link.title,
                 numberOfItems: link.properties.numberOfItems,
-            },
-            links: [{ rel: 'self', href: link.href, type: link.type }],
-            [itemsKey]: items,
+            }
+            result.links = [{ rel: 'self', href: link.href, type: link.type }]
         }
+        return result
     })
     return {
         metadata: {
+            id: children.find(filter('id'))?.textContent,
             title: children.find(filter('title'))?.textContent,
             subtitle: children.find(filter('subtitle'))?.textContent,
+            updated: children.find(filter('updated'))?.textContent,
         },
         links,
         ...items,

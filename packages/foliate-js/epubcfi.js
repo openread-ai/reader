@@ -187,11 +187,14 @@ export const compare = (a, b) => {
 
 const isTextNode = ({ nodeType }) => nodeType === 3 || nodeType === 4
 const isElementNode = ({ nodeType }) => nodeType === 1
+const isInertNode = (node) => node.hasAttribute?.('cfi-inert')
 
 const getChildNodes = (node, filter) => {
     const nodes = Array.from(node.childNodes)
         // "content other than element and character data is ignored"
         .filter(node => isTextNode(node) || isElementNode(node))
+        // always skip nodes marked with cfi-inert attribute
+        .filter(node => !isInertNode(node))
     return filter ? nodes.map(node => {
         const accept = filter(node)
         if (accept === NodeFilter.FILTER_REJECT) return null
@@ -290,23 +293,29 @@ export const fromRange = (range, filter) => {
 }
 
 export const toRange = (doc, parts, filter) => {
-    const startParts = collapse(parts)
-    const endParts = collapse(parts, true)
+    try {
+        const startParts = collapse(parts)
+        const endParts = collapse(parts, true)
 
-    const root = doc.documentElement
-    const start = partsToNode(root, startParts[0], filter)
-    const end = partsToNode(root, endParts[0], filter)
+        const root = doc.documentElement
+        const start = partsToNode(root, startParts[0], filter)
+        const end = partsToNode(root, endParts[0], filter)
 
-    const range = doc.createRange()
+        if (!start?.node || !end?.node) return null
 
-    if (start.before) range.setStartBefore(start.node)
-    else if (start.after) range.setStartAfter(start.node)
-    else range.setStart(start.node, start.offset)
+        const range = doc.createRange()
 
-    if (end.before) range.setEndBefore(end.node)
-    else if (end.after) range.setEndAfter(end.node)
-    else range.setEnd(end.node, end.offset)
-    return range
+        if (start.before) range.setStartBefore(start.node)
+        else if (start.after) range.setStartAfter(start.node)
+        else range.setStart(start.node, start.offset)
+
+        if (end.before) range.setEndBefore(end.node)
+        else if (end.after) range.setEndAfter(end.node)
+        else range.setEnd(end.node, end.offset)
+        return range
+    } catch {
+        return null
+    }
 }
 
 // faster way of getting CFIs for sorted elements in a single parent

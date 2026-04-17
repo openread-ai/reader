@@ -1,18 +1,69 @@
 const createSVGElement = tag =>
     document.createElementNS('http://www.w3.org/2000/svg', tag)
 
+let overlayerCounter = 0
+
 export class Overlayer {
     #svg = createSVGElement('svg')
     #map = new Map()
     #doc = null
+    #clipPath = null
+    #clipPathPath = null
+    #clipPathId
+
     constructor(doc) {
         this.#doc = doc
+        this.#clipPathId = `foliate-loupe-clip-${overlayerCounter++}`
         Object.assign(this.#svg.style, {
             position: 'absolute', top: '0', left: '0',
             width: '100%', height: '100%',
             pointerEvents: 'none',
         })
+
+        // Create a clipPath to cut a hole for the loupe.
+        // We use clip-rule="evenodd" with a large outer rect and inner circle
+        // to create the hole effect efficiently without mask compositing.
+        const defs = createSVGElement('defs')
+        this.#clipPath = createSVGElement('clipPath')
+        this.#clipPath.setAttribute('id', this.#clipPathId)
+        this.#clipPath.setAttribute('clipPathUnits', 'userSpaceOnUse')
+
+        this.#clipPathPath = createSVGElement('path')
+        this.#clipPathPath.setAttribute('clip-rule', 'evenodd')
+        this.#clipPathPath.setAttribute('fill-rule', 'evenodd') // for older renderers
+
+        this.#clipPath.append(this.#clipPathPath)
+        defs.append(this.#clipPath)
+        this.#svg.append(defs)
     }
+
+    setHole(cx, cy, w, h, r) {
+        // Define a path with a large outer rect and a capsule-shaped hole.
+        // The capsule is a rounded rectangle (stadium shape) centred at (cx, cy).
+        const outer = 'M -2000000 -2000000 H 4000000 V 4000000 H -2000000 Z'
+        const hw = w / 2, hh = h / 2
+        const cr = Math.min(r, hw, hh) // clamp corner radius
+        const inner = `M ${cx - hw + cr} ${cy - hh}`
+            + ` H ${cx + hw - cr}`
+            + ` A ${cr} ${cr} 0 0 1 ${cx + hw} ${cy - hh + cr}`
+            + ` V ${cy + hh - cr}`
+            + ` A ${cr} ${cr} 0 0 1 ${cx + hw - cr} ${cy + hh}`
+            + ` H ${cx - hw + cr}`
+            + ` A ${cr} ${cr} 0 0 1 ${cx - hw} ${cy + hh - cr}`
+            + ` V ${cy - hh + cr}`
+            + ` A ${cr} ${cr} 0 0 1 ${cx - hw + cr} ${cy - hh} Z`
+        this.#clipPathPath.setAttribute('d', `${outer} ${inner}`)
+
+        this.#svg.setAttribute('clip-path', `url(#${this.#clipPathId})`)
+        this.#svg.style.webkitClipPath = `url(#${this.#clipPathId})`
+    }
+
+    clearHole() {
+        this.#svg.removeAttribute('clip-path')
+        this.#svg.style.webkitClipPath = ''
+        this.#clipPathPath.removeAttribute('d')
+    }
+
     get element() {
         return this.#svg
     }
@@ -185,18 +236,76 @@ export class Overlayer {
         return g
     }
     static highlight(rects, options = {}) {
-        const { color = 'red', padding = 0 } = options
+        const {
+            color = 'red',
+            padding = 0,
+            radius = 4,
+            radiusPadding = 2,
+            vertical = false,
+        } = options
+
         const g = createSVGElement('g')
         g.setAttribute('fill', color)
         g.style.opacity = 'var(--overlayer-highlight-opacity, .3)'
         g.style.mixBlendMode = 'var(--overlayer-highlight-blend-mode, normal)'
-        for (const { left, top, height, width } of rects) {
-            const el = createSVGElement('rect')
-            el.setAttribute('x', left - padding)
-            el.setAttribute('y', top - padding)
-            el.setAttribute('height', height + padding * 2)
-            el.setAttribute('width', width + padding * 2)
-            g.append(el)
+
+        for (const [index, { left, top, height, width }] of rects.entries()) {
+            const isFirst = index === 0
+            const isLast = index === rects.length - 1
+
+            let x, y, w, h
+
+            let radiusTopLeft, radiusTopRight, radiusBottomRight, radiusBottomLeft
+
+            if (vertical) {
+                x = left - padding
+                y = top - padding - (isFirst ? radiusPadding : 0)
+                w = width + padding * 2
+                h = height + padding * 2 + (isFirst ? radiusPadding : 0) + (isLast ? radiusPadding : 0)
+                radiusTopLeft = isFirst ? radius : 0
+                radiusTopRight = isFirst ? radius : 0
+                radiusBottomRight = isLast ? radius : 0
+                radiusBottomLeft = isLast ? radius : 0
+            } else {
+                x = left - padding - (isFirst ? radiusPadding : 0)
+                y = top - padding
+                w = width + padding * 2 + (isFirst ? radiusPadding : 0) + (isLast ? radiusPadding : 0)
+                h = height + padding * 2
+                radiusTopLeft = isFirst ? radius : 0
+                radiusTopRight = isLast ? radius : 0
+                radiusBottomRight = isLast ? radius : 0
+                radiusBottomLeft = isFirst ? radius : 0
+            }
+
+            const rtl = Math.min(radiusTopLeft, w / 2, h / 2)
+            const rtr = Math.min(radiusTopRight, w / 2, h / 2)
+            const rbr = Math.min(radiusBottomRight, w / 2, h / 2)
+            const rbl = Math.min(radiusBottomLeft, w / 2, h / 2)
+
+            if (rtl === 0 && rtr === 0 && rbr === 0 && rbl === 0) {
+                const el = createSVGElement('rect')
+                el.setAttribute('x', x)
+                el.setAttribute('y', y)
+                el.setAttribute('height', h)
+                el.setAttribute('width', w)
+                g.append(el)
+            } else {
+                const el = createSVGElement('path')
+                const d = `
+                M ${x + rtl} ${y}
+                L ${x + w - rtr} ${y}
+                ${rtr > 0 ? `Q ${x + w} ${y} ${x + w} ${y + rtr}` : `L ${x + w} ${y}`}
+                L ${x + w} ${y + h - rbr}
+                ${rbr > 0 ? `Q ${x + w} ${y + h} ${x + w - rbr} ${y + h}` : `L ${x + w} ${y + h}`}
+                L ${x + rbl} ${y + h}
+                ${rbl > 0 ? `Q ${x} ${y + h} ${x} ${y + h - rbl}` : `L ${x} ${y + h}`}
+                L ${x} ${y + rtl}
+                ${rtl > 0 ? `Q ${x} ${y} ${x + rtl} ${y}` : `L ${x} ${y}`}
+                Z
+            `.trim().replace(/\s+/g, ' ')
+                el.setAttribute('d', d)
+                g.append(el)
+            }
         }
         return g
     }

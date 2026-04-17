@@ -1,5 +1,5 @@
 import * as CFI from './epubcfi.js'
-import { TOCProgress, SectionProgress } from './progress.js'
+import { TOCProgress, SectionProgress, PageProgress } from './progress.js'
 import { Overlayer } from './overlayer.js'
 import { textWalker } from './text-walker.js'
 
@@ -217,6 +217,7 @@ export class View extends HTMLElement {
     #sectionProgress
     #tocProgress
     #pageProgress
+    #cfiProgress
     #searchResults = new Map()
     #cursorAutohider = new CursorAutohider(this, () =>
         this.hasAttribute('autohide-cursor'))
@@ -249,6 +250,7 @@ export class View extends HTMLElement {
             await this.#pageProgress.init({
                 toc: book.pageList ?? [], ids, splitHref, getFragment })
         }
+        this.#cfiProgress = new PageProgress(book, this.resolveNavigation.bind(this))
 
         this.isFixedLayout = this.book.rendition?.layout === 'pre-paginated'
         if (this.isFixedLayout) {
@@ -300,6 +302,7 @@ export class View extends HTMLElement {
         this.#sectionProgress = null
         this.#tocProgress = null
         this.#pageProgress = null
+        this.#cfiProgress = null
         this.#searchResults = new Map()
         this.lastLocation = null
         this.history.clear()
@@ -388,7 +391,7 @@ export class View extends HTMLElement {
                     return
                 }
                 const range = doc ? anchor(doc) : anchor
-                overlayer.add(value, range, Overlayer.outline)
+                if (range) overlayer.add(value, range, Overlayer.outline)
             }
             return
         } else if (value.startsWith(NOTE_PREFIX)) {
@@ -402,8 +405,10 @@ export class View extends HTMLElement {
                     return
                 }
                 const range = doc ? anchor(doc) : anchor
-                const draw = (func, opts) => overlayer.add(value, range, func, opts)
-                this.#emit('draw-annotation', { draw, annotation, doc, range })
+                if (range) {
+                    const draw = (func, opts) => overlayer.add(value, range, func, opts)
+                    this.#emit('draw-annotation', { draw, annotation, doc, range })
+                }
             }
             return
         }
@@ -414,11 +419,13 @@ export class View extends HTMLElement {
             overlayer.remove(value)
             if (!remove) {
                 const range = doc ? anchor(doc) : anchor
-                const draw = (func, opts) => overlayer.add(value, range, func, opts)
-                this.#emit('draw-annotation', { draw, annotation, doc, range })
+                if (range) {
+                    const draw = (func, opts) => overlayer.add(value, range, func, opts)
+                    this.#emit('draw-annotation', { draw, annotation, doc, range })
+                }
             }
         }
-        const label = this.#tocProgress.getProgress(index)?.label ?? ''
+        const label = this.#tocProgress?.getProgress(index)?.label ?? ''
         return { index, label }
     }
     deleteAnnotation(annotation) {
@@ -538,6 +545,11 @@ export class View extends HTMLElement {
         const pageItem = this.#pageProgress?.getProgress(index, range)
         return { tocItem, pageItem }
     }
+    async getCFIProgress(cfi) {
+        const progress = await this.#cfiProgress?.getProgress(cfi)
+        if (!progress || progress.index === -1) return null
+        return this.#sectionProgress?.getProgress(progress.index, progress.fraction)
+    }
     async getTOCItemOf(target) {
         try {
             const { index, anchor } = await this.resolveNavigation(target)
@@ -546,7 +558,7 @@ export class View extends HTMLElement {
             const isRange = frag instanceof Range
             const range = isRange ? frag : doc.createRange()
             if (!isRange) range.selectNodeContents(frag)
-            return this.#tocProgress.getProgress(index, range)
+            return this.#tocProgress?.getProgress(index, range)
         } catch(e) {
             console.error(e)
             console.error(`Could not get ${target}`)
@@ -625,7 +637,7 @@ export class View extends HTMLElement {
                 for (const item of list) this.addAnnotation(item)
                 yield {
                     index: result.index,
-                    label: this.#tocProgress.getProgress(result.index)?.label ?? '',
+                    label: this.#tocProgress?.getProgress(result.index)?.label ?? '',
                     subitems: result.subitems,
                 }
             }
@@ -646,14 +658,21 @@ export class View extends HTMLElement {
         this.#searchResults.clear()
     }
     async initTTS(granularity = 'word', nodeFilter, highlighter) {
-        const doc = this.renderer.getContents()[0].doc
+        const contents = this.renderer.getContents()
+        const primaryIndex = this.renderer.primaryIndex
+        const primary = contents.find(x => x.index === primaryIndex) ?? contents[0]
+        const doc = primary?.doc
+        if (!doc) return
         if (this.tts && this.tts.doc === doc) return
         const { TTS } = await import('./tts.js')
         this.tts = new TTS(doc, textWalker, nodeFilter, highlighter || (range =>
             this.renderer.scrollToAnchor(range, true)), granularity)
     }
     startMediaOverlay() {
-        const { index } = this.renderer.getContents()[0]
+        const contents = this.renderer.getContents()
+        const primaryIndex = this.renderer.primaryIndex
+        const primary = contents.find(x => x.index === primaryIndex) ?? contents[0]
+        const { index } = primary ?? {}
         return this.mediaOverlay.start(index)
     }
 }

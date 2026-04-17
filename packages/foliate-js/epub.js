@@ -237,6 +237,10 @@ const getMetadata = opf => {
         // NOTE: webpub requires number but EPUB allows values like "2.2.1"
         position: one(x.props?.['group-position']),
     })
+    const makeSeries = x => ({
+        name: x.value,
+        position: one(x.props?.['group-position']),
+    })
     const makeAltIdentifier = x => {
         const { value } = x
         if (/^urn:/i.test(value)) return value
@@ -277,11 +281,11 @@ const getMetadata = opf => {
         subject: dc.subject?.map(makeContributor),
         belongsTo: {
             collection: belongsTo.collection?.map(makeCollection),
-            series: belongsTo.series?.map(makeCollection)
-            ?? legacyMeta?.['calibre:series'] ? {
+            series: belongsTo.series?.map(makeSeries)
+            ?? (legacyMeta?.['calibre:series'] ? {
                 name: legacyMeta?.['calibre:series'],
                 position: parseFloat(legacyMeta?.['calibre:series_index']),
-            } : null,
+            } : null),
         },
         altIdentifier: dc.identifier?.map(makeAltIdentifier),
         source: dc.source?.map(makeAltIdentifier), // NOTE: not in webpub schema
@@ -397,6 +401,7 @@ const parseClock = str => {
 }
 
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp']
+const FONT_EXTENSIONS = ['woff', 'woff2', 'ttf', 'otf']
 
 const getImageMediaType = (path) => {
     const extension = path.toLowerCase().split('.').pop()
@@ -408,6 +413,17 @@ const getImageMediaType = (path) => {
         'webp': 'image/webp',
     }
     return mediaTypeMap[extension] || 'image/jpeg'
+}
+
+const getFontMediaType = (path) => {
+    const extension = path.toLowerCase().split('.').pop()
+    const mediaTypeMap = {
+        'woff': 'font/woff',
+        'woff2': 'font/woff2',
+        'ttf': 'font/ttf',
+        'otf': 'font/otf',
+    }
+    return mediaTypeMap[extension] || 'font/ttf'
 }
 
 class MediaOverlay extends EventTarget {
@@ -569,12 +585,37 @@ class MediaOverlay extends EventTarget {
     }
 }
 
-const isUUID = /([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})/
+const isUUID = /([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})/i
 
 const getUUID = opf => {
-    for (const el of opf.getElementsByTagNameNS(NS.DC, 'identifier')) {
-        const [id] = getElementText(el).split(':').slice(-1)
-        if (isUUID.test(id)) return id
+    const extractUUID = el => {
+        const text = getElementText(el)
+        const id = text.split(':').slice(-1)[0]
+        const match = isUUID.exec(id)
+        return match ? match[0] : null
+    }
+    const identifiers = Array.from(opf.getElementsByTagNameNS(NS.DC, 'identifier'))
+    // 1. Prefer the unique-identifier (used by Adobe font obfuscation)
+    const uniqueIdAttr = opf.documentElement.getAttribute('unique-identifier')
+    if (uniqueIdAttr) {
+        const el = identifiers.find(el => el.getAttribute('id') === uniqueIdAttr)
+        if (el) {
+            const uuid = extractUUID(el)
+            if (uuid) return uuid
+        }
+    }
+    // 2. Prefer urn:uuid: identifiers (standard UUID URN per RFC 4122)
+    for (const el of identifiers) {
+        const text = getElementText(el)
+        if (/^urn:uuid:/i.test(text)) {
+            const uuid = extractUUID(el)
+            if (uuid) return uuid
+        }
+    }
+    // 3. Fall back to any identifier containing a UUID
+    for (const el of identifiers) {
+        const uuid = extractUUID(el)
+        if (uuid) return uuid
     }
     return ''
 }
@@ -753,7 +794,7 @@ class Loader {
         const url = URL.createObjectURL(new Blob([newData], { type: newType }))
         this.#cache.set(href, url)
         this.#refCount.set(href, 1)
-        if (newType === MIME.XHTML) {
+        if (newType === MIME.XHTML || newType === MIME.HTML) {
             this.#cacheXHTMLContent.set(url, {href, type: newType, data: newData})
         }
         if (parent) {
@@ -796,11 +837,12 @@ class Loader {
         const { href, mediaType } = item
 
         const isScript = MIME.JS.test(item.mediaType)
-        const detail = { type: mediaType, isScript, allow: true}
+        const detail = { type: mediaType, href, isScript, allow: true}
         const event = new CustomEvent('load', { detail })
         this.eventTarget.dispatchEvent(event)
-        const allow = await event.detail.allow
+        const { allow, url } = await event.detail
         if (!allow) return null
+        if (url !== undefined) return url
 
         const parent = parents.at(-1)
         if (this.#cache.has(href)) return this.ref(href, parent)
@@ -830,12 +872,27 @@ class Loader {
             mediaType: getImageMediaType(path),
         }
     }
+    tryFontEntryItem(path) {
+        if (!FONT_EXTENSIONS.some(ext => path.toLowerCase().endsWith(`.${ext}`))) {
+            return null
+        }
+        if (this.entries.get(path)) {
+            return {
+                href: path,
+                mediaType: getFontMediaType(path),
+            }
+        }
+        return {
+            href: `fonts/${path.split('/').pop()}`,
+            mediaType: getFontMediaType(path),
+        }
+    }
     async loadHref(href, base, parents = []) {
         if (isExternal(href)) return href
         const path = resolveURL(href, base)
         let item = this.manifest.find(item => item.href === path)
         if (!item) {
-            item = this.tryImageEntryItem(path)
+            item = this.tryImageEntryItem(path) ?? this.tryFontEntryItem(path)
             if (!item) {
                 return href
             }
@@ -1066,11 +1123,13 @@ ${doc.querySelector('parsererror').innerText}`)
                 id: item.href,
                 load: () => this.#loader.loadItem(item),
                 unload: () => this.#loader.unloadItem(item),
+                loadText: () => this.#loader.loadText(item.href),
                 loadContent: () => this.#loader.loadItemXHTMLContent(item),
                 createDocument: () => this.loadDocument(item),
                 size: this.getSize(item.href),
                 cfi: this.resources.cfis[index],
                 linear,
+                spineProperties: properties,
                 pageSpread: getPageSpread(properties),
                 resolveHref: href => resolveURL(href, item.href),
                 mediaOverlay: item.mediaOverlay
@@ -1096,6 +1155,7 @@ ${doc.querySelector('parsererror').innerText}`)
         } catch(e) {
             console.warn(e)
         }
+
         this.landmarks ??= this.resources.guide
 
         const { metadata, rendition, media } = getMetadata(opf)
