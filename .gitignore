@@ -53,3 +53,10 @@ fastlane/report.xml
 result*
 .mcp.json
 .worktrees/
+
+# Claude Code session state
+.claude/worktrees/
+.claude/*.local.md
+
+# Session telemetry (per-machine)
+docs/analytics/
