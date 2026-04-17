@@ -31,8 +31,6 @@ declare global {
   }
 }
 
-export type ChatComposerAction = 'show' | 'hide' | 'running' | 'disabled';
-
 /**
  * Global callback invoked by native code (iOS Swift / Android Kotlin)
  * when a user taps a custom item in the native text selection menu.
@@ -165,20 +163,18 @@ export function setNativeFooterActiveTab(tab: string | null): void {
   });
 }
 
-/** Send an action to the native iOS UIKit AI chat composer (show/hide/running/disabled). */
+export type ChatComposerAction = 'show' | 'hide' | 'running' | 'disabled';
+
 export function postChatComposer(action: ChatComposerAction, value?: boolean): void {
   window.webkit?.messageHandlers?.openreadChatComposer?.postMessage({ action, value });
 }
 
-/** Update the native iOS chapter pull indicator. */
-export function postChapterPull(
-  direction: 'next' | 'prev',
-  progress: number,
-  committed?: boolean,
-): void {
-  window.webkit?.messageHandlers?.openreadChapterPull?.postMessage({
-    direction,
-    progress,
-    ...(committed !== undefined && { committed }),
-  });
+export type ChapterPullDirection = 'next' | 'prev' | 'reset';
+
+export function postChapterPull(data: {
+  direction: ChapterPullDirection;
+  progress?: number;
+  committed?: boolean;
+}): void {
+  window.webkit?.messageHandlers?.openreadChapterPull?.postMessage(data);
 }

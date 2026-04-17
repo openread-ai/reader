@@ -12,6 +12,63 @@ import os
 
 private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "NativeBridge")
 
+/// Hides WebKit's keyboard form accessory (Previous / Next / Done) above the software keyboard.
+/// There is no public `WKWebView` API; this uses the common runtime subclass pattern (see WebKit rdar).
+private enum WebKitInputAccessoryStripper {
+  @objc private class NilAccessoryHelper: NSObject {
+    @objc func inputAccessoryView() -> UIView? { nil }
+  }
+
+  static func strip(from webView: WKWebView) {
+    guard
+      let content = webView.scrollView.subviews.first(where: {
+        String(describing: type(of: $0)).contains("WKContent")
+      })
+    else {
+      return
+    }
+
+    let contentClass: AnyClass = object_getClass(content)!
+    let alreadyStripped = String(cString: class_getName(contentClass)).hasSuffix("OpenreadNoAccessory")
+    if alreadyStripped {
+      return
+    }
+    let baseName = String(cString: class_getName(contentClass))
+    let subclassName = "\(baseName)_OpenreadNoAccessory"
+
+    if let existing = NSClassFromString(subclassName) {
+      object_setClass(content, existing)
+      return
+    }
+
+    guard
+      let subclass: AnyClass = subclassName.withCString({ ptr in
+        objc_allocateClassPair(contentClass, ptr, 0)
+      })
+    else {
+      return
+    }
+
+    guard
+      let method = class_getInstanceMethod(
+        NilAccessoryHelper.self, #selector(NilAccessoryHelper.inputAccessoryView))
+    else {
+      objc_disposeClassPair(subclass)
+      return
+    }
+
+    let imp = method_getImplementation(method)
+    let types = method_getTypeEncoding(method)
+    guard class_addMethod(subclass, NSSelectorFromString("inputAccessoryView"), imp, types) else {
+      objc_disposeClassPair(subclass)
+      return
+    }
+
+    objc_registerClassPair(subclass)
+    object_setClass(content, subclass)
+  }
+}
+
 extension UIColor {
   /// `#RRGGBB` from app theme (`base-100`).
   convenience init?(openreadHex: String) {
@@ -1383,25 +1440,28 @@ final class NativeChatComposer: UIView, UITextViewDelegate {
   private weak var webView: WKWebView?
   private let textView = UITextView()
   private let sendButton = UIButton(type: .system)
+  private let plusButton = UIButton(type: .system)
+  private let micButton = UIButton(type: .system)
   private let placeholderLabel = UILabel()
   private var textViewHeightConstraint: NSLayoutConstraint!
-  private let maxTextViewHeight: CGFloat = 120
-  private let minTextViewHeight: CGFloat = 42
-
-  private static let symbolConfig = UIImage.SymbolConfiguration(pointSize: 28, weight: .medium)
-  private static let sendImage = UIImage(systemName: "arrow.up.circle.fill")?.withConfiguration(symbolConfig)
-  private static let stopImage = UIImage(systemName: "stop.circle.fill")?.withConfiguration(symbolConfig)
-
-  private var lastIsRunning: Bool?
-  private var lastShouldShow: Bool?
-  private var cachedHeight: CGFloat
+  private let maxTextViewHeight: CGFloat = 140
+  private let minTextViewHeight: CGFloat = 28
+  private let toolbarHeight: CGFloat = 44
 
   var isRunning = false {
-    didSet { updateSendButton() }
+    // Guard against per-chunk bridge floods: assistant-ui toggles isRunning on every
+    // streaming transition, each toggle would otherwise re-run updateSendButton (UIImage
+    // allocation + 0.15s animate).
+    didSet {
+      guard oldValue != isRunning else { return }
+      updateSendButton()
+    }
   }
 
+  /// `true` when sending is disabled (e.g. daily limit reached).
   var isDisabled = false {
     didSet {
+      guard oldValue != isDisabled else { return }
       textView.isEditable = !isDisabled
       placeholderLabel.text = isDisabled ? "Daily limit reached" : "Ask about this book..."
       updateSendButton()
@@ -1409,20 +1469,20 @@ final class NativeChatComposer: UIView, UITextViewDelegate {
   }
 
   override var intrinsicContentSize: CGSize {
-    CGSize(width: UIView.noIntrinsicMetric, height: cachedHeight)
+    CGSize(width: UIView.noIntrinsicMetric, height: currentHeight)
   }
 
-  private func recalculateHeight() -> CGFloat {
+  private var currentHeight: CGFloat {
     let textHeight = textView.sizeThatFits(
       CGSize(width: textView.frame.width > 0 ? textView.frame.width : 280, height: .greatestFiniteMagnitude)
     ).height
     let clampedText = min(max(textHeight, minTextViewHeight), maxTextViewHeight)
-    return clampedText + 16
+    // 14pt top padding + text + toolbar row + 10pt bottom padding
+    return clampedText + 14 + toolbarHeight + 10
   }
 
   init(webView: WKWebView) {
     self.webView = webView
-    self.cachedHeight = 42 + 16
     super.init(frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 52))
     autoresizingMask = .flexibleWidth
     setupView()
@@ -1430,99 +1490,169 @@ final class NativeChatComposer: UIView, UITextViewDelegate {
 
   required init?(coder: NSCoder) { fatalError() }
 
+  /// Called from applyThemeSurface.
   func applyThemeColor(_ baseColor: UIColor) {
-    backgroundColor = .clear
     var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
     baseColor.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
     let isDark = b < 0.5
     let fg: UIColor = isDark ? .white : .black
+
+    // Container = rounded rectangle, slightly lighter/darker than theme surface
+    backgroundColor = isDark
+      ? UIColor(white: 0.12, alpha: 1.0)
+      : UIColor(white: 0.97, alpha: 1.0)
+    layer.borderColor = fg.withAlphaComponent(0.10).cgColor
+
+    // Text + toolbar icons
     textView.textColor = fg
-    textView.backgroundColor = fg.withAlphaComponent(0.08)
-    textView.layer.borderColor = fg.withAlphaComponent(0.10).cgColor
-    placeholderLabel.textColor = fg.withAlphaComponent(0.30)
-    sendButton.tintColor = fg
-    textView.tintColor = fg.withAlphaComponent(0.6)
+    textView.backgroundColor = .clear
+    placeholderLabel.textColor = fg.withAlphaComponent(0.45)
+    plusButton.tintColor = fg.withAlphaComponent(0.85)
+    micButton.tintColor = fg.withAlphaComponent(0.85)
+    textView.tintColor = fg.withAlphaComponent(0.7)
     textView.keyboardAppearance = isDark ? .dark : .light
+
+    // Send/voice button: white circle with dark icon (Claude style)
+    sendButton.backgroundColor = fg
+    sendButton.tintColor = isDark ? .black : .white
   }
 
   private func setupView() {
+    // Container = rounded rectangle (Claude-style). Theme colors applied in applyThemeColor.
+    backgroundColor = UIColor(white: 0.12, alpha: 1.0)
+    layer.cornerRadius = 20
+    layer.borderWidth = 0.5
+    layer.borderColor = UIColor.white.withAlphaComponent(0.10).cgColor
+    // Subtle floating shadow
+    layer.masksToBounds = false
+    layer.shadowColor = UIColor.black.cgColor
+    layer.shadowOpacity = 0.15
+    layer.shadowOffset = CGSize(width: 0, height: 1)
+    layer.shadowRadius = 8
+
+    // Text view — transparent, inherits container background
     textView.translatesAutoresizingMaskIntoConstraints = false
-    textView.font = .systemFont(ofSize: 16)
-    textView.layer.cornerRadius = 22
-    textView.layer.borderWidth = 0.5
-    textView.layer.masksToBounds = false
-    textView.layer.shadowColor = UIColor.black.cgColor
-    textView.layer.shadowOpacity = 0.2
-    textView.layer.shadowOffset = CGSize(width: 0, height: 1)
-    textView.layer.shadowRadius = 6
-    textView.textContainerInset = UIEdgeInsets(top: 11, left: 16, bottom: 11, right: 44)
+    textView.font = .systemFont(ofSize: 17)
+    textView.backgroundColor = .clear
+    textView.textContainerInset = .zero
+    textView.textContainer.lineFragmentPadding = 0
+    textView.textColor = .white
     textView.isScrollEnabled = false
     textView.delegate = self
-    textView.returnKeyType = .send
-    textView.enablesReturnKeyAutomatically = true
+    textView.returnKeyType = .default
+    textView.keyboardAppearance = .dark
+    textView.tintColor = UIColor.white.withAlphaComponent(0.7)
     addSubview(textView)
 
+    // Placeholder
     placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
-    placeholderLabel.text = "Ask about this book..."
-    placeholderLabel.font = .systemFont(ofSize: 16)
+    placeholderLabel.text = "Ask about this book"
+    placeholderLabel.font = .systemFont(ofSize: 17)
+    placeholderLabel.textColor = UIColor.white.withAlphaComponent(0.45)
     addSubview(placeholderLabel)
 
+    // Plus button (attachments) — bottom-left toolbar icon
+    plusButton.translatesAutoresizingMaskIntoConstraints = false
+    plusButton.setImage(
+      UIImage(systemName: "plus")?
+        .withConfiguration(UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)),
+      for: .normal
+    )
+    plusButton.tintColor = UIColor.white.withAlphaComponent(0.85)
+    plusButton.addTarget(self, action: #selector(plusTapped), for: .touchUpInside)
+    addSubview(plusButton)
+
+    // Mic button (dictation) — bottom-right, hides when text is entered
+    micButton.translatesAutoresizingMaskIntoConstraints = false
+    micButton.setImage(
+      UIImage(systemName: "mic")?
+        .withConfiguration(UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)),
+      for: .normal
+    )
+    micButton.tintColor = UIColor.white.withAlphaComponent(0.85)
+    micButton.addTarget(self, action: #selector(micTapped), for: .touchUpInside)
+    addSubview(micButton)
+
+    // Send/voice button — white circle, rightmost position
     sendButton.translatesAutoresizingMaskIntoConstraints = false
-    sendButton.setImage(NativeChatComposer.sendImage, for: .normal)
+    sendButton.backgroundColor = .white
+    sendButton.tintColor = .black
+    sendButton.layer.cornerRadius = 16
+    sendButton.setImage(
+      UIImage(systemName: "waveform")?
+        .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)),
+      for: .normal
+    )
     sendButton.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
     addSubview(sendButton)
 
     textViewHeightConstraint = textView.heightAnchor.constraint(equalToConstant: minTextViewHeight)
 
     NSLayoutConstraint.activate([
-      textView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-      textView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-      textView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-      textView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+      // Text view fills top section
+      textView.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+      textView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+      textView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
       textViewHeightConstraint,
 
-      placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 20),
-      placeholderLabel.centerYAnchor.constraint(equalTo: textView.centerYAnchor),
+      placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
+      placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor),
 
-      sendButton.trailingAnchor.constraint(equalTo: textView.trailingAnchor, constant: -8),
-      sendButton.bottomAnchor.constraint(equalTo: textView.bottomAnchor, constant: -6),
-      sendButton.widthAnchor.constraint(equalToConstant: 30),
-      sendButton.heightAnchor.constraint(equalToConstant: 30),
+      // Toolbar row below text
+      plusButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+      plusButton.topAnchor.constraint(equalTo: textView.bottomAnchor, constant: 6),
+      plusButton.widthAnchor.constraint(equalToConstant: 32),
+      plusButton.heightAnchor.constraint(equalToConstant: 32),
+      plusButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+
+      micButton.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -6),
+      micButton.centerYAnchor.constraint(equalTo: plusButton.centerYAnchor),
+      micButton.widthAnchor.constraint(equalToConstant: 32),
+      micButton.heightAnchor.constraint(equalToConstant: 32),
+
+      sendButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+      sendButton.centerYAnchor.constraint(equalTo: plusButton.centerYAnchor),
+      sendButton.widthAnchor.constraint(equalToConstant: 32),
+      sendButton.heightAnchor.constraint(equalToConstant: 32),
     ])
 
-    applyThemeColor(.black)
     updateSendButton()
+  }
+
+  private func lightHaptic() {
+    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+  }
+
+  @objc private func plusTapped() {
+    // Placeholder for future attachment/context menu
+    lightHaptic()
+  }
+
+  @objc private func micTapped() {
+    textView.becomeFirstResponder()
+    lightHaptic()
   }
 
   private func updateSendButton() {
     let hasText = !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-
-    if isRunning != lastIsRunning {
-      sendButton.setImage(
-        isRunning ? NativeChatComposer.stopImage : NativeChatComposer.sendImage,
-        for: .normal
-      )
-      lastIsRunning = isRunning
-    }
+    let symbolConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
 
     if isRunning {
-      if lastShouldShow != true {
-        sendButton.alpha = 1.0
-        sendButton.transform = .identity
-        sendButton.isHidden = false
-        sendButton.isEnabled = true
-        lastShouldShow = true
-      }
-      return
+      sendButton.setImage(UIImage(systemName: "stop.fill")?.withConfiguration(symbolConfig), for: .normal)
+      sendButton.isEnabled = true
+    } else if hasText && !isDisabled {
+      sendButton.setImage(UIImage(systemName: "arrow.up")?.withConfiguration(symbolConfig), for: .normal)
+      sendButton.isEnabled = true
+    } else {
+      // Empty state: waveform "voice" indicator (matches Claude)
+      sendButton.setImage(UIImage(systemName: "waveform")?.withConfiguration(symbolConfig), for: .normal)
+      sendButton.isEnabled = !isDisabled
     }
 
-    let shouldShow = hasText && !isDisabled
-    sendButton.isEnabled = shouldShow
-    if shouldShow == lastShouldShow { return }
-    lastShouldShow = shouldShow
+    // Mic only visible when empty (Claude style)
     UIView.animate(withDuration: 0.15) {
-      self.sendButton.alpha = shouldShow ? 1.0 : 0.0
-      self.sendButton.transform = shouldShow ? .identity : CGAffineTransform(scaleX: 0.8, y: 0.8)
+      self.micButton.alpha = hasText ? 0.0 : 1.0
+      self.micButton.transform = hasText ? CGAffineTransform(scaleX: 0.8, y: 0.8) : .identity
     }
   }
 
@@ -1535,12 +1665,13 @@ final class NativeChatComposer: UIView, UITextViewDelegate {
     let text = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty else { return }
 
-    // Escape for JS string literal
     let escaped = text
       .replacingOccurrences(of: "\\", with: "\\\\")
       .replacingOccurrences(of: "'", with: "\\'")
       .replacingOccurrences(of: "\n", with: "\\n")
       .replacingOccurrences(of: "\r", with: "")
+      .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+      .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
 
     webView?.evaluateJavaScript("window.__openreadNativeChatSend?.('\(escaped)')") { _, _ in }
     textView.text = ""
@@ -1558,7 +1689,6 @@ final class NativeChatComposer: UIView, UITextViewDelegate {
       CGSize(width: textView.frame.width, height: .greatestFiniteMagnitude))
     let newHeight = min(max(size.height, minTextViewHeight), maxTextViewHeight)
     textView.isScrollEnabled = size.height > maxTextViewHeight
-    cachedHeight = newHeight + 16
 
     if textViewHeightConstraint.constant != newHeight {
       textViewHeightConstraint.constant = newHeight
@@ -1570,12 +1700,13 @@ final class NativeChatComposer: UIView, UITextViewDelegate {
   }
 
   func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
-    // Return key sends (unless shift+return for newline)
-    if text == "\n" {
-      sendTapped()
-      return false
-    }
+    // Return inserts a newline (Claude-style). Send is explicit via the arrow button.
     return true
+  }
+
+  /// Focus the text view (opens keyboard).
+  func activate() {
+    textView.becomeFirstResponder()
   }
 
   /// Dismiss the keyboard.
@@ -1622,6 +1753,10 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
   private var chapterPullBottomWidth: NSLayoutConstraint?
   private var chapterPullTopWidth: NSLayoutConstraint?
   private var urlObservation: NSKeyValueObservation?
+  /// One-shot keyboard observer to run `WebKitInputAccessoryStripper` once WKContent is ready.
+  private var keyboardAccessoryStripObserver: NSObjectProtocol?
+  /// Last value sent to JS for composer keyboard inset — avoid flooding `evaluateJavaScript` every frame.
+  private var lastComposerKeyboardInsetSent: Int?
   /// Native AI chat composer — replaces web composer on iOS to avoid WKWebView keyboard issues.
   private var chatComposer: NativeChatComposer?
 
@@ -1952,8 +2087,9 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
     self.webView = webview
     logger.log("NativeBridgePlugin loaded")
 
-    // The native chat composer pins to keyboardLayoutGuide; disable the default
-    // WKWebView content-inset so it doesn't add a second keyboard-height pad on top.
+    // Disable UIKit's automatic keyboard content-inset on the WKWebView scroll view.
+    // By default WKWebView adds contentInset.bottom equal to the keyboard height,
+    // which double-counts against our own JS-driven composer padding (useComposerKeyboardInset).
     webview.scrollView.contentInsetAdjustmentBehavior = .never
 
     // Register custom items in the iOS text selection edit menu.
@@ -2166,6 +2302,65 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
     } else {
       Logger.error("NativeBridgePlugin: Failed to get shared application")
     }
+
+    // Strip WebKit keyboard form accessory bar (Previous / Next / Done). No public API,
+    // so traverse subviews and swizzle inputAccessoryView → nil. WKContent subview
+    // may not be laid out yet at plugin-load time, so also run on keyboard-will-show.
+    WebKitInputAccessoryStripper.strip(from: webview)
+    keyboardAccessoryStripObserver = NotificationCenter.default.addObserver(
+      forName: UIResponder.keyboardWillShowNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      guard let w = self?.webView else { return }
+      WebKitInputAccessoryStripper.strip(from: w)
+      if let obs = self?.keyboardAccessoryStripObserver {
+        NotificationCenter.default.removeObserver(obs)
+        self?.keyboardAccessoryStripObserver = nil
+      }
+    }
+
+    // Composer-only: dispatch keyboard overlap (px) for JS — do not pad the whole notebook shell.
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(keyboardFrameWillChange(_:)),
+      name: UIResponder.keyboardWillChangeFrameNotification,
+      object: nil
+    )
+  }
+
+  private func keyboardBottomOverlapPoints(notification: Notification) -> CGFloat {
+    guard let webView = webView,
+          let userInfo = notification.userInfo,
+          let kbScreen = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+          let window = webView.window
+    else {
+      return 0
+    }
+    let kbInWindow = window.convert(kbScreen, from: window.screen.coordinateSpace)
+    let webFrameInWindow = webView.convert(webView.bounds, to: window)
+    let overlap = webFrameInWindow.intersection(kbInWindow).height
+    let kbHeight = kbScreen.height
+    return max(0, min(overlap, kbHeight))
+  }
+
+  private func dispatchComposerKeyboardInsetToWeb(heightPoints: CGFloat) {
+    guard let webView = webView else { return }
+    let px = Int(round(heightPoints))
+    // Throttle: identical value, or tiny jitter while keyboard is open (reduces main-thread + IME churn).
+    if let last = lastComposerKeyboardInsetSent {
+      if px == last { return }
+      if px != 0 && abs(px - last) < 2 { return }
+    }
+    lastComposerKeyboardInsetSent = px
+    let js =
+      "window.dispatchEvent(new CustomEvent('openread-native-keyboard-inset',{detail:{bottomInsetPx:\(px)}}))"
+    webView.evaluateJavaScript(js) { _, _ in }
+  }
+
+  @objc private func keyboardFrameWillChange(_ notification: Notification) {
+    let height = keyboardBottomOverlapPoints(notification: notification)
+    dispatchComposerKeyboardInsetToWeb(heightPoints: height)
   }
 
   @objc func appWillEnterForeground() {
@@ -2205,6 +2400,10 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
     webViewLifecycleManager?.stopMonitoring()
     webViewLifecycleManager = nil
 
+    if let obs = keyboardAccessoryStripObserver {
+      NotificationCenter.default.removeObserver(obs)
+      keyboardAccessoryStripObserver = nil
+    }
     NotificationCenter.default.removeObserver(self)
   }
 

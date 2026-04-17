@@ -31,7 +31,6 @@ import {
   keepTextAlignment,
   transformStylesheet,
 } from '@/utils/style';
-import { postChapterPull } from '@/services/annotation/nativeMenuBridge';
 import { mountAdditionalFonts, mountCustomFont } from '@/styles/fonts';
 import { getBookDirFromLanguage, getBookDirFromWritingMode } from '@/utils/book';
 import { useUICSS } from '@/hooks/useUICSS';
@@ -50,6 +49,7 @@ import {
 import { getMaxInlineSize } from '@/utils/config';
 import { getDirFromUILanguage } from '@/utils/rtl';
 import { isTauriAppPlatform } from '@/services/environment';
+import { postChapterPull } from '@/services/annotation/nativeMenuBridge';
 import { TransformContext } from '@/services/transformers/types';
 import { transformContent } from '@/services/transformService';
 import { lockScreenOrientation } from '@/utils/bridge';
@@ -350,16 +350,14 @@ const FoliateViewer: React.FC<{
         );
         if (container) {
           let touchStartY = 0;
-          let lastPullDirection = '';
+          let lastPullDirection: 'next' | 'prev' | '' = '';
           let lastPullProgress = 0;
           let committed = false;
           let rubberBandKilled = false;
 
-          // Drives the chapter transition directly in JS (no bridge round-trip) and notifies
-          // native of the commit. Errors swallowed so a failed transition doesn't strand the reader.
           const commitChapterPull = (direction: 'next' | 'prev') => {
             Promise.resolve(direction === 'next' ? view.next() : view.prev()).catch(() => {});
-            postChapterPull(direction, 1, true);
+            postChapterPull({ direction, progress: 1, committed: true });
           };
 
           const handlePullMessage = (msg: MessageEvent) => {
@@ -374,7 +372,7 @@ const FoliateViewer: React.FC<{
               committed = false;
               rubberBandKilled = false;
             } else if (type === 'iframe-touchmove') {
-              if (committed) return; // already fired for this gesture
+              if (committed) return;
               const touch = targetTouches?.[0];
               if (!touch) return;
               const dy = touch.screenY - touchStartY;
@@ -406,16 +404,16 @@ const FoliateViewer: React.FC<{
                 }
               }
 
-              // On iOS, pulling past the boundary of a CSS overflow:auto container can fire
-              // touchcancel instead of touchend, so commit on the first threshold crossing.
+              // iOS fires touchcancel (not touchend) when pulling past a CSS
+              // overflow:auto container boundary — commit on threshold crossing
+              // rather than waiting for touchend, which may never arrive.
               if (lastPullDirection && lastPullProgress >= 1) {
-                commitChapterPull(lastPullDirection as 'next' | 'prev');
                 committed = true;
+                commitChapterPull(lastPullDirection);
+              } else if (lastPullDirection) {
+                postChapterPull({ direction: lastPullDirection, progress: lastPullProgress });
               } else {
-                window.webkit?.messageHandlers?.openreadChapterPull?.postMessage({
-                  direction: lastPullDirection,
-                  progress: lastPullProgress,
-                });
+                postChapterPull({ direction: 'reset', progress: 0 });
               }
             } else if (type === 'iframe-touchend' || type === 'iframe-touchcancel') {
               if (rubberBandKilled) {
@@ -423,16 +421,10 @@ const FoliateViewer: React.FC<{
                 container.style.overscrollBehavior = '';
               }
               if (!committed && lastPullDirection && lastPullProgress >= 1) {
-                commitChapterPull(lastPullDirection as 'next' | 'prev');
                 committed = true;
+                commitChapterPull(lastPullDirection);
               } else if (!committed && lastPullDirection) {
-                // Only send reset if a pull was actually in progress.
-                // Skip for plain taps to avoid interfering with menu toggle.
-                window.webkit?.messageHandlers?.openreadChapterPull?.postMessage({
-                  direction: '',
-                  progress: 0,
-                  committed: false,
-                });
+                postChapterPull({ direction: 'reset', progress: 0, committed: false });
               }
               lastPullDirection = '';
               lastPullProgress = 0;
