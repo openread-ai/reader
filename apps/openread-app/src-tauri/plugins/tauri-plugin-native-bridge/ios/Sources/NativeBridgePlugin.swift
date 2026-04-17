@@ -12,6 +12,25 @@ import os
 
 private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "NativeBridge")
 
+private extension String {
+  private static let jsStringEncoder = JSONEncoder()
+
+  /// JS-safe double-quoted string literal (quotes included).
+  ///
+  /// JSON is a near-subset of JS string syntax, so `JSONEncoder` handles control chars,
+  /// backslash/quote escaping, and Unicode correctly — but JSON permits raw U+2028 and
+  /// U+2029 while pre-ES2019 JS treats them as line terminators. We post-process those
+  /// two codepoints so the output is safe for `eval`/`Function()` paths too.
+  var asJSStringLiteral: String {
+    // JSONEncoder.encode(String) is infallible by construction — force-unwrap so a
+    // stdlib regression crashes loudly instead of silently sending "" to JS.
+    let data = try! Self.jsStringEncoder.encode(self)
+    return String(data: data, encoding: .utf8)!
+      .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+      .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
+  }
+}
+
 /// Hides WebKit's keyboard form accessory (Previous / Next / Done) above the software keyboard.
 /// There is no public `WKWebView` API; this uses the common runtime subclass pattern (see WebKit rdar).
 private enum WebKitInputAccessoryStripper {
@@ -855,7 +874,7 @@ class NativeColorPicker: UIView {
     selectedColor = colorId
     updateSelection()
     webView?.evaluateJavaScript(
-      "window.__nativeTextSelectionAction('highlight', '\(colorId)', 'highlight')"
+      "window.__nativeTextSelectionAction('highlight', \(colorId.asJSStringLiteral), 'highlight')"
     ) { _, _ in }
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.hide() }
   }
@@ -1037,15 +1056,14 @@ class NativeCollectionPicker: UIViewController, UITableViewDataSource, UITableVi
       }
     }
 
-    // Send all selected IDs + new names to JS
-    let addedJSON = added.map { "\"\($0)\"" }.joined(separator: ",")
-    let createdJSON = created.map { "\($0.replacingOccurrences(of: "'", with: "\\'"))" }.joined(separator: "','")
-    let hashesJSON = bookHashes.map { "\"\($0)\"" }.joined(separator: ",")
+    let addedJSON = added.map { $0.asJSStringLiteral }.joined(separator: ",")
+    let createdJSON = created.map { $0.asJSStringLiteral }.joined(separator: ",")
+    let hashesJSON = bookHashes.map { $0.asJSStringLiteral }.joined(separator: ",")
 
     let js = """
     window.__nativeCollectionResult?.({
       selectedIds: [\(addedJSON)],
-      newNames: ['\(createdJSON)'],
+      newNames: [\(createdJSON)],
       bookHashes: [\(hashesJSON)]
     })
     """
@@ -1164,7 +1182,9 @@ class NativeSelectionBar: UIView {
     case "addToCollection":
       showCollectionAlert()
     default:
-      webView?.evaluateJavaScript("window.__nativeSelectionAction?.('\(action)')") { _, _ in }
+      webView?.evaluateJavaScript(
+        "window.__nativeSelectionAction?.(\(action.asJSStringLiteral))"
+      ) { _, _ in }
     }
   }
 
@@ -1354,9 +1374,10 @@ class NativeCollectionNavBar: UINavigationBar {
       let newName = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       if !newName.isEmpty {
         self?.collectionName = newName
-        let escaped = newName.replacingOccurrences(of: "'", with: "\\'")
-        let idEscaped = self?.collectionId.replacingOccurrences(of: "'", with: "\\'") ?? ""
-        self?.webView?.evaluateJavaScript("window.__nativeCollectionAction?.('rename', '\(idEscaped)', '\(escaped)')") { _, _ in }
+        let id = self?.collectionId ?? ""
+        self?.webView?.evaluateJavaScript(
+          "window.__nativeCollectionAction?.('rename', \(id.asJSStringLiteral), \(newName.asJSStringLiteral))"
+        ) { _, _ in }
       }
     })
     topVC.present(alert, animated: true)
@@ -1375,8 +1396,10 @@ class NativeCollectionNavBar: UINavigationBar {
     )
     alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
     alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
-      let idEscaped = self?.collectionId.replacingOccurrences(of: "'", with: "\\'") ?? ""
-      self?.webView?.evaluateJavaScript("window.__nativeCollectionAction?.('delete', '\(idEscaped)')") { _, _ in }
+      let id = self?.collectionId ?? ""
+      self?.webView?.evaluateJavaScript(
+        "window.__nativeCollectionAction?.('delete', \(id.asJSStringLiteral))"
+      ) { _, _ in }
     })
     topVC.present(alert, animated: true)
   }
@@ -1416,7 +1439,9 @@ class NativeFooterTabBar: UITabBar, UITabBarDelegate {
     } else {
       previousTag = item.tag
     }
-    webView?.evaluateJavaScript("window.__nativeFooterAction?.('\(action)')") { _, _ in }
+    webView?.evaluateJavaScript(
+      "window.__nativeFooterAction?.(\(action.asJSStringLiteral))"
+    ) { _, _ in }
   }
 
   func setActiveTab(_ tab: String) {
@@ -1662,18 +1687,15 @@ final class NativeChatComposer: UIView, UITextViewDelegate {
       webView?.evaluateJavaScript("window.__openreadNativeChatCancel?.()") { _, _ in }
       return
     }
-    let text = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    // Normalize CRLF → LF to match web composer behavior before forwarding.
+    let text = textView.text
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .replacingOccurrences(of: "\r", with: "")
     guard !text.isEmpty else { return }
 
-    let escaped = text
-      .replacingOccurrences(of: "\\", with: "\\\\")
-      .replacingOccurrences(of: "'", with: "\\'")
-      .replacingOccurrences(of: "\n", with: "\\n")
-      .replacingOccurrences(of: "\r", with: "")
-      .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
-      .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
-
-    webView?.evaluateJavaScript("window.__openreadNativeChatSend?.('\(escaped)')") { _, _ in }
+    webView?.evaluateJavaScript(
+      "window.__openreadNativeChatSend?.(\(text.asJSStringLiteral))"
+    ) { _, _ in }
     textView.text = ""
     placeholderLabel.isHidden = false
     textViewDidChange(textView)
@@ -1776,9 +1798,9 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
     alert.addAction(UIAlertAction(title: "Rename", style: .default) { [weak self] _ in
       let newName = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       if !newName.isEmpty && newName != currentTitle {
-        let escaped = newName.replacingOccurrences(of: "'", with: "\\'")
-        let hashEscaped = bookHash.replacingOccurrences(of: "'", with: "\\'")
-        self?.webView?.evaluateJavaScript("window.__nativeBookRename?.('\(hashEscaped)', '\(escaped)')") { _, _ in }
+        self?.webView?.evaluateJavaScript(
+          "window.__nativeBookRename?.(\(bookHash.asJSStringLiteral), \(newName.asJSStringLiteral))"
+        ) { _, _ in }
       }
     })
     topVC.present(alert, animated: true)
@@ -1976,9 +1998,9 @@ class NativeBridgePlugin: Plugin, WKScriptMessageHandler {
       alert.addAction(UIAlertAction(title: "Done", style: .default) { [weak self] _ in
         let value = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !value.isEmpty {
-          let escaped = value.replacingOccurrences(of: "'", with: "\\'")
-          let cbEscaped = callbackId.replacingOccurrences(of: "'", with: "\\'")
-          self?.webView?.evaluateJavaScript("window.__nativeTextInputResult?.('\(cbEscaped)', '\(escaped)')") { _, _ in }
+          self?.webView?.evaluateJavaScript(
+            "window.__nativeTextInputResult?.(\(callbackId.asJSStringLiteral), \(value.asJSStringLiteral))"
+          ) { _, _ in }
         }
       })
       topVC.present(alert, animated: true)
