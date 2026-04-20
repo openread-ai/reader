@@ -565,11 +565,6 @@ foliate-fxl {
   background-color: theme('colors.transparent') !important;
 }
 
-[data-eink='true'] .opds-navigation .card {
-  background-color: theme('colors.base-100') !important;
-  border: 1px solid theme('colors.base-content') !important;
-}
-
 [data-eink='true'] .booknote-item {
   background-color: theme('colors.base-100') !important;
   border: 1px solid theme('colors.base-content') !important;

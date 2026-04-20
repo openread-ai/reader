@@ -680,8 +680,6 @@ export const READEST_PUBLIC_STORAGE_BASE_URL = 'https://storage.openread.com';
 export const CATALOG_API_BASE_URL =
   process.env['NEXT_PUBLIC_CATALOG_API_URL'] || 'https://api.openread.ai';
 
-export const READEST_OPDS_USER_AGENT = 'Openread/1.0 (OPDS Browser)';
-
 export const SYNC_PROGRESS_INTERVAL_SEC = 3;
 export const SYNC_NOTES_INTERVAL_SEC = 5;
 export const SYNC_BOOKS_INTERVAL_SEC = 5;

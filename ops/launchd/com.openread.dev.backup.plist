@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  F9 — daily state.db backup at 02:00 local.
+
+  Copies ~/.openread-dev/state.db to ~/.openread-dev/backups/state-YYYYMMDD.db
+  and prunes any file older than retention.backupsDays (default 30).
+
+  Install:
+    cp ops/launchd/com.openread.dev.backup.plist ~/Library/LaunchAgents/
+    launchctl load  ~/Library/LaunchAgents/com.openread.dev.backup.plist
+    launchctl start com.openread.dev.backup    # one-off run to verify
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.openread.dev.backup.plist
+    rm ~/Library/LaunchAgents/com.openread.dev.backup.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openread.dev.backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-lc</string>
+        <string><![CDATA[
+set -euo pipefail
+SRC="$HOME/.openread-dev/state.db"
+DST_DIR="$HOME/.openread-dev/backups"
+mkdir -p "$DST_DIR"
+if [ ! -f "$SRC" ]; then
+  echo "backup: no state.db yet at $SRC — skipping"
+  exit 0
+fi
+STAMP=$(date +%Y%m%d)
+DST="$DST_DIR/state-$STAMP.db"
+
+# Prefer SQLite online backup API via the sqlite3 CLI (consistent snapshot
+# even while WAL readers are active). Fall back to cp when sqlite3 is absent.
+if command -v sqlite3 >/dev/null 2>&1; then
+  sqlite3 "$SRC" ".backup '$DST'"
+else
+  cp -p "$SRC" "$DST"
+fi
+
+# Prune backups older than 30 days (mirrors retention.backupsDays default).
+find "$DST_DIR" -maxdepth 1 -name 'state-*.db' -type f -mtime +30 -print -delete
+echo "backup: wrote $DST"
+]]></string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>2</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/com.openread.dev.backup.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.openread.dev.backup.err.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

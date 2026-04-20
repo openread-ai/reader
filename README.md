@@ -26,7 +26,6 @@ Built with [Next.js](https://github.com/vercel/next.js) and [Tauri](https://gith
 | **AI-Powered Reading**         | Chat with your books, summaries, and Q&A                    |
 | **MCP Server**                 | Connect your library to AI assistants                       |
 | **Library Management**         | Organize, sort, and manage your ebook library               |
-| **OPDS/Calibre**               | Access online libraries and catalogs                        |
 | **Accessibility**              | Keyboard navigation, VoiceOver, TalkBack, NVDA, Orca        |
 
 ## Quick Start

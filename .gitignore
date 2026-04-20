@@ -60,3 +60,11 @@ result*
 
 # Session telemetry (per-machine)
 docs/analytics/
+
+# Visual-regression baselines — moved to local bucket (~/.openread-dev/artifacts/).
+# See /migrate-baselines and docs/probe-driven-workflow-implementation.md §7.7.
+e2e/**/*.spec.ts-snapshots/
+**/__snapshots__/*.png
+# ...except the per-feature manifest, which is committed so CI can reproduce
+# the expected baseline set.
+!docs/design/**/baselines.manifest.json

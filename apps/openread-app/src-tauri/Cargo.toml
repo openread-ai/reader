@@ -56,6 +56,15 @@ tauri-plugin-native-tts = { path = "./plugins/tauri-plugin-native-tts" }
 tauri-plugin-websocket = "2"
 tauri-plugin-sharekit = "0.3"
 
+# --- Probe-driven-workflow Bundle D1: type-safe IPC contract via tauri-specta ---
+# See docs/probe-driven-workflow-implementation.md §3 Bundle D + §4.1.
+# specta 2.x + tauri-specta 2.x (release candidate line) generate a TypeScript
+# bindings file at apps/openread-app/src/bindings.ts which is committed and
+# diffed in CI (`specta-contract-diff` job — §11) to detect IPC drift.
+specta = { version = "=2.0.0-rc.22", features = ["derive"] }
+specta-typescript = "=0.0.9"
+tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
+
 [target."cfg(target_os = \"macos\")".dependencies]
 rand = "0.8"
 cocoa = "0.25"
