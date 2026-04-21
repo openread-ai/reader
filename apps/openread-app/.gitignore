@@ -60,3 +60,8 @@ src-tauri/gen
 /public/fallback-*.js
 /public/swe-worker-*.js
 
+# Playwright artifacts (per-run, not checked in)
+/test-results/
+/playwright-report/
+/playwright/.cache/
+

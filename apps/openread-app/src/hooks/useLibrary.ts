@@ -21,12 +21,21 @@ export const useLibrary = () => {
         const appService = await envConfig.getAppService();
         const settings = await appService.loadSettings();
         setSettings(settings);
-        setLibrary(await appService.loadLibraryBooks());
+        const diskBooks = await appService.loadLibraryBooks();
+        // Only overwrite if disk has data or store is empty.
+        // Sync may have already populated the store — don't clobber with empty disk.
+        const currentLibrary = useLibraryStore.getState().library;
+        if (diskBooks.length > 0 || currentLibrary.length === 0) {
+          setLibrary(diskBooks);
+        }
       } catch (error) {
         logger.error('Failed to initialize library', error);
         // Set empty library so libraryLoaded=true in the store,
         // allowing sync to proceed even if disk load fails.
-        setLibrary([]);
+        const currentLibrary = useLibraryStore.getState().library;
+        if (currentLibrary.length === 0) {
+          setLibrary([]);
+        }
       } finally {
         setLibraryLoaded(true);
       }
