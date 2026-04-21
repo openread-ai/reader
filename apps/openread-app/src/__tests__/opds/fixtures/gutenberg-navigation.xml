@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:opds="http://opds-spec.org/2010/catalog"
+      xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/"
+      xmlns:thr="http://purl.org/syndication/thread/1.0"
+      xmlns:dc="http://purl.org/dc/terms/">
+  <id>urn:uuid:gutenberg-root</id>
+  <title>Project Gutenberg</title>
+  <subtitle>Free ebooks since 1971</subtitle>
+  <updated>2024-01-15T00:00:00Z</updated>
+  <author>
+    <name>Project Gutenberg</name>
+    <uri>https://www.gutenberg.org</uri>
+  </author>
+  <link rel="self" href="/ebooks.opds/" type="application/atom+xml;profile=opds-catalog"/>
+  <link rel="search" href="/ebooks/search.opds/?query={searchTerms}" type="application/atom+xml"/>
+  <link rel="start" href="/ebooks.opds/" type="application/atom+xml;profile=opds-catalog"/>
+
+  <entry>
+    <title>Popular</title>
+    <id>urn:uuid:gutenberg-popular</id>
+    <updated>2024-01-15T00:00:00Z</updated>
+    <link rel="subsection" href="/ebooks/search.opds/?sort_order=downloads" type="application/atom+xml;profile=opds-catalog"/>
+    <content type="text">Most downloaded books</content>
+  </entry>
+
+  <entry>
+    <title>Recent</title>
+    <id>urn:uuid:gutenberg-recent</id>
+    <updated>2024-01-15T00:00:00Z</updated>
+    <link rel="http://opds-spec.org/sort/new" href="/ebooks/search.opds/?sort_order=release_date" type="application/atom+xml;profile=opds-catalog"/>
+    <content type="text">Recently added books</content>
+  </entry>
+
+  <entry>
+    <title>By Author</title>
+    <id>urn:uuid:gutenberg-authors</id>
+    <updated>2024-01-15T00:00:00Z</updated>
+    <link rel="subsection" href="/ebooks/authors.opds/" type="application/atom+xml;profile=opds-catalog"/>
+    <content type="text">Browse by author name</content>
+  </entry>
+</feed>

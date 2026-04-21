@@ -2,6 +2,7 @@ import { CustomTheme } from '@/styles/themes';
 import { CustomFont } from '@/styles/fonts';
 import { CustomTexture } from '@/styles/textures';
 import { HighlightColor, HighlightStyle, ViewSettings } from './book';
+import { OPDSCatalog } from './opds';
 import type { AISettings } from '@/services/ai/types';
 import type { NotebookTab } from '@/store/notebookStore';
 
@@ -91,6 +92,7 @@ export interface SystemSettings {
   librarySidebarWidth: string;
   customFonts: CustomFont[];
   customTextures: CustomTexture[];
+  opdsCatalogs: OPDSCatalog[];
 
   kosync: KOSyncSettings;
 

@@ -70,7 +70,7 @@ fn get_drag_view_class() -> &'static objc::runtime::Class {
                 sel!(acceptsFirstMouse:),
                 accepts_first_mouse as extern "C" fn(&Object, Sel, id) -> BOOL,
             );
-            decl.register()
+            &*decl.register()
         }
     })
 }

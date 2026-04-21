@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:opds="http://opds-spec.org/2010/catalog"
+      xmlns:dc="http://purl.org/dc/terms/"
+      xmlns:dcterms="http://purl.org/dc/terms/"
+      xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/"
+      xmlns:thr="http://purl.org/syndication/thread/1.0"
+      xmlns:fh="http://purl.org/syndication/history/1.0"
+      xmlns:schema="http://schema.org/">
+  <id>urn:uuid:test-acquisition</id>
+  <title>Test Acquisition Feed</title>
+  <updated>2024-01-15T12:00:00Z</updated>
+  <link rel="self" href="/catalog/feed" type="application/atom+xml;profile=opds-catalog"/>
+  <link rel="next" href="/catalog/feed?page=2" type="application/atom+xml;profile=opds-catalog"/>
+  <link rel="search" type="application/opensearchdescription+xml" href="/search.xml"/>
+  <link rel="http://opds-spec.org/facet" href="/catalog/epub" title="EPUB" opds:facetGroup="Format" thr:count="42"/>
+  <link rel="http://opds-spec.org/facet" href="/catalog/pdf" title="PDF" opds:facetGroup="Format" thr:count="18"/>
+  <link rel="http://opds-spec.org/facet" href="/catalog/english" title="English" opds:facetGroup="Language" opds:activeFacet="true" thr:count="30"/>
+  <opensearch:totalResults>60</opensearch:totalResults>
+  <opensearch:itemsPerPage>20</opensearch:itemsPerPage>
+  <opensearch:startIndex>0</opensearch:startIndex>
+
+  <entry>
+    <title>Pride and Prejudice</title>
+    <id>urn:isbn:9780141439518</id>
+    <updated>2024-01-10T00:00:00Z</updated>
+    <author>
+      <name>Jane Austen</name>
+      <uri>https://en.wikipedia.org/wiki/Jane_Austen</uri>
+    </author>
+    <dc:language>en</dc:language>
+    <dc:publisher>Public Domain</dc:publisher>
+    <dcterms:issued>1813-01-28</dcterms:issued>
+    <dc:identifier>urn:isbn:9780141439518</dc:identifier>
+    <category scheme="http://www.bisg.org/standards/bisac" term="FIC004000" label="Fiction / Classics"/>
+    <category term="Romance" label="Romance"/>
+    <summary>A classic novel of manners.</summary>
+    <content type="html">&lt;p&gt;A masterpiece of wit and social commentary.&lt;/p&gt;</content>
+    <rights>Public Domain</rights>
+    <link rel="http://opds-spec.org/image" href="/covers/pride.jpg" type="image/jpeg"/>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/covers/pride-thumb.jpg" type="image/jpeg"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" href="/books/pride.epub" type="application/epub+zip" title="EPUB"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" href="/books/pride.pdf" type="application/pdf" title="PDF"/>
+  </entry>
+
+  <entry>
+    <title>A Study in Scarlet</title>
+    <id>urn:uuid:study-scarlet</id>
+    <updated>2024-01-11T00:00:00Z</updated>
+    <author>
+      <name>Arthur Conan Doyle</name>
+    </author>
+    <contributor>
+      <name>John H. Watson</name>
+    </contributor>
+    <dc:language>en</dc:language>
+    <dcterms:issued>1887</dcterms:issued>
+    <summary>The first Sherlock Holmes story.</summary>
+    <link rel="http://opds-spec.org/image" href="/covers/scarlet.jpg" type="image/jpeg"/>
+    <link rel="http://opds-spec.org/acquisition" href="/books/scarlet.epub" type="application/epub+zip"/>
+    <link rel="http://opds-spec.org/acquisition/buy" href="/buy/scarlet" type="application/epub+zip">
+      <opds:price currencycode="USD">4.99</opds:price>
+    </link>
+    <link rel="http://opds-spec.org/acquisition/borrow" href="/borrow/scarlet" type="application/epub+zip">
+      <opds:availability state="available" until="2024-02-15T00:00:00Z"/>
+    </link>
+    <link rel="http://opds-spec.org/acquisition/sample" href="/sample/scarlet.epub" type="application/epub+zip"/>
+  </entry>
+
+  <entry>
+    <title>DRM Protected Book</title>
+    <id>urn:uuid:drm-book</id>
+    <updated>2024-01-12T00:00:00Z</updated>
+    <author>
+      <name>Test Author</name>
+    </author>
+    <link rel="http://opds-spec.org/acquisition/buy" href="/buy/drm-book" type="application/vnd.adobe.adept+xml">
+      <opds:price currencycode="EUR">12.99</opds:price>
+      <opds:indirectAcquisition type="application/epub+zip"/>
+    </link>
+  </entry>
+</feed>

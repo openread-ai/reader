@@ -28,9 +28,6 @@ mod discord_rpc;
 #[cfg(target_os = "macos")]
 mod macos;
 mod transfer_file;
-// Bundle D4: Rust test skeleton — compiled under `cargo test` only.
-#[cfg(test)]
-mod tests;
 use tauri::{command, Emitter, WebviewUrl, WebviewWindowBuilder, Window};
 #[cfg(target_os = "android")]
 use tauri_plugin_native_bridge::register_select_directory_callback;
@@ -113,47 +110,6 @@ fn set_window_open_with_files(app: &AppHandle, files: Vec<PathBuf>) {
     }
 }
 
-// --- Probe-driven-workflow Bundle D1 -----------------------------------------
-// tauri-specta integration. Two sample commands below are annotated with
-// `#[specta::specta]` so they surface in the generated TypeScript bindings
-// (`apps/openread-app/src/bindings.ts`). The CI `specta-contract-diff` job
-// (§11 of docs/probe-driven-workflow-implementation.md) runs
-// `cargo test generate_bindings` and then `git diff --exit-code` against
-// the committed bindings file.
-//
-// TODO(Bundle D1 follow-up): progressively annotate EVERY existing
-// `#[tauri::command]` in this crate (start_server, download_file, upload_file,
-// get_environment_variable, get_executable_dir, dir_scanner::read_dir, etc.)
-// with `#[specta::specta]` and register them in `specta_builder()` below so
-// the full IPC surface is covered. This was left as a follow-up because every
-// annotated command also needs `serde::Deserialize + specta::Type` on its
-// input/output types, and sweeping that across the crate is out-of-scope for
-// the initial scaffolding.
-#[tauri::command]
-#[specta::specta]
-fn probe_ping() -> String {
-    "pong".to_string()
-}
-
-#[tauri::command]
-#[specta::specta]
-fn probe_echo(message: String) -> String {
-    message
-}
-
-/// Construct the tauri-specta Builder. Shared between the live `run()` path
-/// and the `generate_bindings` test in `src/tests/mod.rs`.
-///
-/// NOTE: list commands in alphabetical order here. tauri-specta preserves the
-/// order given to `collect_commands![...]` when emitting TypeScript, and CI
-/// (`specta-contract-diff`) treats any textual change as drift. Sorting by
-/// name keeps additions minimal-diff and review-friendly.
-#[allow(dead_code)]
-pub fn specta_builder() -> tauri_specta::Builder {
-    tauri_specta::Builder::<tauri::Wry>::new()
-        .commands(tauri_specta::collect_commands![probe_echo, probe_ping,])
-}
-
 #[command]
 async fn start_server(window: Window) -> Result<u16, String> {
     start(move |url| {
@@ -201,9 +157,6 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_oauth::init())
         .invoke_handler(tauri::generate_handler![
-            // Bundle D1: sample specta-annotated probe commands.
-            probe_ping,
-            probe_echo,
             start_server,
             download_file,
             upload_file,

@@ -1,0 +1,93 @@
+{
+  "metadata": {
+    "title": "Test OPDS 2.0 Feed",
+    "identifier": "urn:uuid:test-opds2",
+    "modified": "2024-01-15T12:00:00Z",
+    "subtitle": "A test feed for OPDS 2.0 parsing"
+  },
+  "links": [
+    { "rel": "self", "href": "/opds2/catalog", "type": "application/opds+json" },
+    { "rel": "search", "href": "/opds2/search?q={searchTerms}", "type": "application/opds+json" },
+    { "rel": "next", "href": "/opds2/catalog?page=2", "type": "application/opds+json" }
+  ],
+  "navigation": [
+    {
+      "href": "/opds2/new",
+      "title": "New Releases",
+      "rel": "http://opds-spec.org/sort/new",
+      "type": "application/opds+json"
+    },
+    {
+      "href": "/opds2/popular",
+      "title": "Most Popular",
+      "rel": "http://opds-spec.org/sort/popular",
+      "type": "application/opds+json"
+    }
+  ],
+  "publications": [
+    {
+      "metadata": {
+        "title": "Moby Dick",
+        "identifier": "urn:isbn:9781503280786",
+        "author": [{ "name": "Herman Melville", "sortAs": "Melville, Herman" }],
+        "language": "en",
+        "published": "1851-10-18",
+        "modified": "2024-01-10T00:00:00Z",
+        "description": "The saga of Captain Ahab and the great white whale.",
+        "subject": [{ "name": "Adventure", "scheme": "http://www.bisg.org/standards/bisac" }],
+        "belongsTo": {
+          "series": { "name": "Great American Novels", "position": 1 }
+        }
+      },
+      "links": [
+        {
+          "rel": "http://opds-spec.org/acquisition/open-access",
+          "href": "/books/moby-dick.epub",
+          "type": "application/epub+zip"
+        },
+        {
+          "rel": "http://opds-spec.org/acquisition/open-access",
+          "href": "/books/moby-dick.pdf",
+          "type": "application/pdf"
+        }
+      ],
+      "images": [
+        {
+          "href": "/images/moby-dick-cover.jpg",
+          "type": "image/jpeg",
+          "rel": "http://opds-spec.org/image"
+        },
+        {
+          "href": "/images/moby-dick-thumb.jpg",
+          "type": "image/jpeg",
+          "rel": "http://opds-spec.org/image/thumbnail",
+          "width": 200,
+          "height": 300
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "metadata": { "title": "Featured" },
+      "links": [{ "rel": "self", "href": "/opds2/featured", "type": "application/opds+json" }],
+      "publications": [
+        {
+          "metadata": {
+            "title": "The Great Gatsby",
+            "author": [{ "name": "F. Scott Fitzgerald" }],
+            "description": "A tale of the Jazz Age."
+          },
+          "links": [
+            {
+              "rel": "http://opds-spec.org/acquisition/open-access",
+              "href": "/books/gatsby.epub",
+              "type": "application/epub+zip"
+            }
+          ],
+          "images": []
+        }
+      ]
+    }
+  ]
+}
