@@ -9,7 +9,7 @@ export const getDownloadSignedUrl = async (
 ) => {
   const storageType = getStorageType();
   if (storageType === 'r2') {
-    bucketName = bucketName || process.env['R2_BUCKET'] || '';
+    bucketName = bucketName || process.env['R2_BUCKET'] || process.env['R2_BUCKET_NAME'] || '';
     return await r2Storage.getDownloadSignedUrl(bucketName, fileKey, expiresIn);
   } else {
     bucketName = bucketName || process.env['S3_BUCKET_NAME'] || '';
@@ -25,7 +25,7 @@ export const getUploadSignedUrl = async (
 ) => {
   const storageType = getStorageType();
   if (storageType === 'r2') {
-    bucketName = bucketName || process.env['R2_BUCKET'] || '';
+    bucketName = bucketName || process.env['R2_BUCKET'] || process.env['R2_BUCKET_NAME'] || '';
     return await r2Storage.getUploadSignedUrl(bucketName, fileKey, contentLength, expiresIn);
   } else {
     bucketName = bucketName || process.env['S3_BUCKET_NAME'] || '';
@@ -36,7 +36,7 @@ export const getUploadSignedUrl = async (
 export const deleteObject = async (fileKey: string, bucketName?: string) => {
   const storageType = getStorageType();
   if (storageType === 'r2') {
-    bucketName = bucketName || process.env['R2_BUCKET'] || '';
+    bucketName = bucketName || process.env['R2_BUCKET'] || process.env['R2_BUCKET_NAME'] || '';
     return await r2Storage.deleteObject(bucketName, fileKey);
   } else {
     bucketName = bucketName || process.env['S3_BUCKET_NAME'] || '';

@@ -2,6 +2,7 @@ import { isWebAppPlatform, hasCli } from '@/services/environment';
 import { AppService } from '@/types/system';
 import { getCurrent } from '@tauri-apps/plugin-deep-link';
 import { createLogger } from '@/utils/logger';
+import { isActivityCaptureUrl } from '@/helpers/activityCapture';
 
 const logger = createLogger('openWith');
 
@@ -45,6 +46,9 @@ const parseIntentOpenWithFiles = async (appService: AppService | null) => {
     logger.info('Intent Open with URL:', urls);
     return urls
       .map((url) => {
+        if (isActivityCaptureUrl(url)) {
+          return null;
+        }
         if (url.startsWith('file://')) {
           if (appService?.isIOSApp) {
             return decodeURI(url);

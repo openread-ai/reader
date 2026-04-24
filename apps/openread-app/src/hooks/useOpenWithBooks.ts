@@ -10,6 +10,7 @@ import { isTauriAppPlatform } from '@/services/environment';
 import { navigateToLibrary, showLibraryWindow } from '@/utils/nav';
 import { eventDispatcher } from '@/utils/event';
 import { createLogger } from '@/utils/logger';
+import { isActivityCaptureUrl } from '@/helpers/activityCapture';
 
 const logger = createLogger('openWithBooks');
 
@@ -43,6 +44,7 @@ export function useOpenWithBooks() {
     logger.info('Handle Open with URL:', urls);
     const filePaths = [];
     for (let url of urls) {
+      if (isActivityCaptureUrl(url)) continue;
       if (url.startsWith('file://')) {
         if (appService?.isIOSApp) {
           url = decodeURI(url);
