@@ -1,6 +1,15 @@
 import type { ExtensionAPI, ExtensionContext } from '@mariozechner/pi-coding-agent';
 
 type PolicyMode = 'observe' | 'warn' | 'block';
+type FlowGate =
+  | { state: 'open' }
+  | {
+      state: 'blocked';
+      reason: string;
+      requiredAction: string;
+      dirtyFiles: string[];
+      createdAt: string;
+    };
 
 const FLOW = 'edit → impact → commit → lint/build → simplify → security → push';
 const QUALITY_GATE = 'lint → build-web → tests → simplify → security';
@@ -10,6 +19,7 @@ const MAX_DIRTY_FILES = getPositiveIntEnv('PI_FLOW_MAX_DIRTY_FILES', 5);
 const AUTO_COMMIT = getBooleanEnv('PI_FLOW_AUTO_COMMIT', false);
 
 const sessionEditedFiles = new Set<string>();
+let flowGate: FlowGate = { state: 'open' };
 
 const PROTECTED_PATTERNS = [
   /(^|\/)\.env(\.|$)/,
@@ -112,6 +122,62 @@ function hasSecret(text: string): boolean {
 
 function shouldBlock(): boolean {
   return MODE === 'block';
+}
+
+function shouldGate(): boolean {
+  return MODE !== 'observe';
+}
+
+function isFlowGateBlocked(): boolean {
+  return shouldGate() && flowGate.state === 'blocked';
+}
+
+function flowGateReason(): string {
+  if (flowGate.state === 'open') return 'Flow gate is open.';
+  return [
+    `Flow gate closed: ${flowGate.reason}`,
+    `Required action: ${flowGate.requiredAction}`,
+    `Dirty files: ${flowGate.dirtyFiles.length}`,
+  ].join('\n');
+}
+
+function closeFlowGate(ctx: ExtensionContext, reason: string, dirty: string[]) {
+  if (!shouldGate()) return;
+  flowGate = {
+    state: 'blocked',
+    reason,
+    requiredAction: 'Commit, stash, or archive current work before more edits.',
+    dirtyFiles: dirty.map(statusPath),
+    createdAt: new Date().toISOString(),
+  };
+  notifyPolicy(ctx, `${flowGateReason()}\nUse /commit-logical with explicit files.`, 'error');
+}
+
+function blockForFlowGate(ctx: ExtensionContext): { block: true; reason: string } | undefined {
+  if (!isFlowGateBlocked()) return undefined;
+  const reason = flowGateReason();
+  notifyPolicy(ctx, reason, 'error');
+  return { block: true, reason };
+}
+
+async function refreshFlowGate(pi: ExtensionAPI, ctx: ExtensionContext) {
+  if (flowGate.state === 'open') return;
+  const dirty = await dirtyFiles(pi).catch(() => []);
+  if (dirty.length <= MAX_DIRTY_FILES) {
+    flowGate = { state: 'open' };
+    notifyPolicy(ctx, 'Flow gate cleared. Continue with the next logical change.', 'info');
+    await updateStatus(pi, ctx, 'gate cleared');
+  }
+}
+
+function isMutatingBashCommand(command: string): boolean {
+  return /\b(?:edit|python|python3|node|perl|ruby|tee|printf|echo|touch|mv|cp|rm|mkdir)\b/.test(
+    command,
+  );
+}
+
+function isFlowGateRemediationCommand(command: string): boolean {
+  return /^\s*git\s+(?:status|diff|add|commit|stash|reset)(?:\s|$)/.test(command);
 }
 
 async function exec(
@@ -221,23 +287,23 @@ async function enforceDirtyBudget(
     return undefined;
   }
 
-  if (dirty.length < dirtyWarnAt()) return undefined;
+  if (dirty.length < dirtyWarnAt()) {
+    await refreshFlowGate(pi, ctx);
+    return undefined;
+  }
 
   const overBudget = dirty.length > MAX_DIRTY_FILES;
   const reason = overBudget
     ? `Dirty budget exceeded: ${dirty.length}/${MAX_DIRTY_FILES}. Commit, stash, or archive before more edits.`
     : `Commit soon: ${dirty.length}/${MAX_DIRTY_FILES} dirty files.`;
-  notifyPolicy(
-    ctx,
-    `${reason}\nUse /commit-logical with explicit files.`,
-    overBudget ? 'error' : 'warning',
-  );
+  if (overBudget) closeFlowGate(ctx, reason, dirty);
+  else notifyPolicy(ctx, `${reason}\nUse /commit-logical with explicit files.`, 'warning');
   await updateStatus(
     pi,
     ctx,
     overBudget ? `dirty ${dirty.length}/${MAX_DIRTY_FILES}` : 'commit soon',
   );
-  if (overBudget && shouldBlock()) return { block: true, reason };
+  if (overBudget && shouldGate()) return { block: true, reason: flowGateReason() };
   return undefined;
 }
 
@@ -321,6 +387,9 @@ export default function flowGuardrails(pi: ExtensionAPI) {
   pi.on('tool_call', async (event, ctx) => {
     if (!isEditTool(event.toolName)) return;
 
+    const gateBlock = blockForFlowGate(ctx);
+    if (gateBlock) return gateBlock;
+
     const dirtyBudgetResult = await enforceDirtyBudget(pi, ctx);
     if (dirtyBudgetResult) return dirtyBudgetResult;
 
@@ -374,11 +443,10 @@ export default function flowGuardrails(pi: ExtensionAPI) {
       if (MODE !== 'observe') return { block: true, reason };
     }
 
-    if (
-      /\b(?:edit|python|python3|node|perl|ruby|tee|printf|echo|touch|mv|cp|rm|mkdir)\b/.test(
-        command,
-      )
-    ) {
+    if (isMutatingBashCommand(command)) {
+      if (isFlowGateBlocked() && !isFlowGateRemediationCommand(command)) {
+        return blockForFlowGate(ctx);
+      }
       const dirtyBudgetResult = await enforceDirtyBudget(pi, ctx);
       if (dirtyBudgetResult) return dirtyBudgetResult;
     }
@@ -402,6 +470,14 @@ export default function flowGuardrails(pi: ExtensionAPI) {
     if (/git\s+push/.test(command)) {
       notifyPolicy(ctx, `Pre-push gate reminder: ${QUALITY_GATE}.`, 'warning');
       await updateStatus(pi, ctx, 'pre-push');
+    }
+  });
+
+  pi.on('tool_result', async (event, ctx) => {
+    if (event.toolName !== 'bash') return;
+    const command = (event.input as { command?: string }).command ?? '';
+    if (/^\s*git\s+(?:commit|stash|reset)(?:\s|$)/.test(command)) {
+      await refreshFlowGate(pi, ctx);
     }
   });
 
@@ -437,6 +513,7 @@ export default function flowGuardrails(pi: ExtensionAPI) {
         ],
         pi,
       );
+      await refreshFlowGate(pi, ctx);
       await updateStatus(pi, ctx, 'committed');
       ctx.ui.notify(`Committed scoped change: ${parsed.message}`, 'info');
     },
@@ -451,20 +528,13 @@ export default function flowGuardrails(pi: ExtensionAPI) {
       status = 'Unable to read git status.';
     }
     ctx.ui.notify(
-      `Flow: ${FLOW}\nMode: ${MODE}\nAuto-commit: ${AUTO_COMMIT ? 'on' : 'off'}\nDirty budget: warn at ${dirtyWarnAt()}, max ${MAX_DIRTY_FILES}\n${status || 'Working tree clean.'}`,
+      `Flow: ${FLOW}\nMode: ${MODE}\nGate: ${flowGate.state}\nAuto-commit: ${AUTO_COMMIT ? 'on' : 'off'}\nDirty budget: warn at ${dirtyWarnAt()}, max ${MAX_DIRTY_FILES}\n${status || 'Working tree clean.'}`,
       'info',
     );
   }
 
   pi.registerCommand('flow', {
     description: 'Show flow guardrails and git status',
-    handler: async (_args, ctx) => {
-      await showFlowStatus(ctx);
-    },
-  });
-
-  pi.registerCommand('flow-status', {
-    description: 'Alias for /flow; show flow guardrails and git status',
     handler: async (_args, ctx) => {
       await showFlowStatus(ctx);
     },

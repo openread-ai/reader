@@ -32,7 +32,7 @@ This stages explicit files only and records session/why metadata in the commit b
 
 ## State
 
-Use `/flow-state` to inspect recent persisted parallel-agent runs. State is stored outside repos at:
+Use `/flow-tree` to inspect recent persisted parallel-agent runs. State is stored outside repos at:
 
 ```text
 ~/.pi/agent/flow-guardrails/state.json

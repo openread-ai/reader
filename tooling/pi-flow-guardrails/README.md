@@ -39,7 +39,6 @@ pi -e ./tooling/pi-flow-guardrails
 - `flow-concurrency` extension
   - `flow_agents` tool for read-only single/parallel/chain subagents
   - `/flow-parallel` template command
-  - `/flow-state` persisted run state viewer
   - `/flow-tree` color-coded task-tree view for recent agent runs
   - status/footer includes branch, dirty count, and total git worktree count
 - `openread-worktree` extension
@@ -47,7 +46,6 @@ pi -e ./tooling/pi-flow-guardrails
   - `/openread-worktree <branch>` creates and bootstraps a new Openread worktree
 - `openread-night` theme
 - `flow-guardrails` skill
-- `flow-research` prompt template
 
 ## Policy
 
@@ -55,13 +53,13 @@ Environment variables:
 
 ```bash
 PI_FLOW_MODE=warn          # observe | warn | block
-PI_FLOW_MAX_DIRTY_FILES=5  # warns at max-1; blocks over max only in block mode
+PI_FLOW_MAX_DIRTY_FILES=5  # warns at max-1; gates over max in warn/block modes
 PI_FLOW_AUTO_COMMIT=false  # optional: auto-commit files edited by this Pi session only
 PI_FLOW_CONCURRENCY=4      # max concurrent read-only agents
 PI_FLOW_MAX_TASKS=8        # max tasks per flow_agents call
 ```
 
-Dirty budget stays simple: with the default max of `5`, Pi starts nudging at `4/5` and can block over `5/5` only when `PI_FLOW_MODE=block`.
+Dirty budget stays simple: with the default max of `5`, Pi starts nudging at `4/5` and closes the flow gate over `5/5` in `warn` and `block` modes. Use `observe` for notifications only.
 
 Auto-commit is off by default. When `PI_FLOW_AUTO_COMMIT=true`, the post-edit hook commits only files edited by the current Pi session and stages explicit paths; it does not touch unrelated dirty files from other sessions.
 

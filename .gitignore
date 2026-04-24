@@ -60,3 +60,10 @@ result*
 
 # Session telemetry (per-machine)
 docs/analytics/
+
+# Pi local/user preferences
+# Keep personal themes and settings in ~/.pi/agent rather than the repo.
+.pi/themes/
+.pi/*.local.json
+tooling/pi-flow-guardrails/themes/*.local.json
+tooling/pi-flow-guardrails/themes/lucent-orng.json

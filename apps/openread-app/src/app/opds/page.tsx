@@ -241,7 +241,7 @@ export default function BrowserPage() {
           } = doc;
 
           if (localName === 'feed') {
-            const feed = getFeed(doc) as OPDSFeed;
+            const feed = getFeed(doc) as unknown as OPDSFeed;
             const newState = {
               feed,
               baseURL: responseURL,

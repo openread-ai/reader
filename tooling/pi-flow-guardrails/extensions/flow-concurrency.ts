@@ -42,6 +42,7 @@ const READ_ONLY_TOOLS = ['read', 'grep', 'find', 'ls'];
 const READ_ONLY_TOOL_SET = new Set(READ_ONLY_TOOLS);
 const DEFAULT_CONCURRENCY = Number(process.env.PI_FLOW_CONCURRENCY ?? 4);
 const MAX_TASKS = Number(process.env.PI_FLOW_MAX_TASKS ?? 8);
+const DEFAULT_AGENT_MODEL = process.env.PI_FLOW_AGENT_MODEL ?? 'gpt-5.5';
 const stateFile = path.join(os.homedir(), '.pi', 'agent', 'flow-guardrails', 'state.json');
 
 function now() {
@@ -109,7 +110,7 @@ async function runTask(
   ].join('\n');
 
   const args = ['--mode', 'json', '-p', '--no-session', '--tools', tools.join(',')];
-  if (task.model) args.push('--model', task.model);
+  args.push('--model', task.model ?? DEFAULT_AGENT_MODEL);
   args.push(prompt);
 
   const invocation = getPiInvocation(args);
@@ -364,20 +365,6 @@ export default function flowConcurrency(pi: ExtensionAPI) {
         details: run,
         isError: run.status === 'failed',
       };
-    },
-  });
-
-  pi.registerCommand('flow-state', {
-    description: 'Show persisted flow agent runs',
-    handler: async (_args, ctx) => {
-      const state = await readState();
-      const lines = state.runs
-        .slice(-10)
-        .map(
-          (run) =>
-            `${run.id} ${run.mode} ${run.status} ${run.results.length} task(s) ${run.startedAt}`,
-        );
-      ctx.ui.notify(lines.length ? lines.join('\n') : 'No flow agent runs recorded yet.', 'info');
     },
   });
 
