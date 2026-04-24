@@ -37,7 +37,9 @@ const InlineQuestionBar: React.FC<InlineQuestionBarProps> = ({ bookKey }) => {
   const sideBarWidth = useSidebarStore((s) => s.sideBarWidth);
 
   const { primaryBookHash, getParallelHashes } = usePrimaryBookHash(bookKey);
-  const aiEnabled = settings?.aiSettings?.enabled;
+  // Default to enabled while settings load (DEFAULT_AI_SETTINGS.enabled = true).
+  // The store initializes as {} before loadSettings() completes.
+  const aiEnabled = settings?.aiSettings?.enabled ?? true;
   const notebookOnAI = useNotebookStore((s) => s.notebookActiveTab === 'ai');
 
   // Compute left/right offsets so the bar centers over the reading area
