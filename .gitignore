@@ -67,3 +67,4 @@ docs/analytics/
 .pi/*.local.json
 tooling/pi-flow-guardrails/themes/*.local.json
 tooling/pi-flow-guardrails/themes/lucent-orng.json
+.startdev/
