@@ -3,7 +3,7 @@
 import { Progress } from '@/components/primitives/progress';
 import { Skeleton } from '@/components/primitives/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/primitives/card';
-import { useAIQuotaStore } from '@/store/aiQuotaStore';
+import { useAIQuotaStore, type LimitType } from '@/store/aiQuotaStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { cn } from '@/utils/tailwind';
 import { MessageSquare } from 'lucide-react';
@@ -20,10 +20,9 @@ function getProgressColor(percent: number): string {
   return '[&>div]:bg-primary';
 }
 
-function formatResetDate(resetAt: string, limitType: 'daily' | 'monthly'): string {
-  if (limitType === 'daily') {
-    return 'at midnight';
-  }
+function formatResetDate(resetAt: string, limitType: LimitType): string {
+  if (limitType === 'daily') return 'at midnight';
+  if (limitType === 'window') return 'soon';
   const date = new Date(resetAt);
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
@@ -55,7 +54,12 @@ export function AIUsageMeter({ isLoading }: AIUsageMeterProps) {
   }
 
   const isUnlimited = limit === -1;
-  const periodLabel = limitType === 'monthly' ? _('this month') : _('today');
+  const periodLabel =
+    limitType === 'monthly'
+      ? _('this month')
+      : limitType === 'window'
+        ? _('this window')
+        : _('today');
   const resetLabel = resetAt ? ` ${_('Resets')} ${formatResetDate(resetAt, limitType)}.` : '';
 
   return (

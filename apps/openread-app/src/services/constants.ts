@@ -664,23 +664,23 @@ export const CJK_FONTS_PATTENS = new RegExp(
 
 export const BOOK_IDS_SEPARATOR = '+';
 
-export const DOWNLOAD_READEST_URL = 'https://openread.com?utm_source=openread_web';
+export const DOWNLOAD_OPENREAD_URL = 'https://openread.com?utm_source=openread_web';
 
-export const READEST_WEB_BASE_URL = 'https://app.openread.ai';
-export const READEST_NODE_BASE_URL = 'https://node.openread.com';
+export const OPENREAD_WEB_BASE_URL = 'https://app.openread.ai';
+export const OPENREAD_NODE_BASE_URL = 'https://node.openread.com';
 
 const LATEST_DOWNLOAD_BASE_URL = 'https://download.openread.com/releases';
 
-export const READEST_UPDATER_FILE = `${LATEST_DOWNLOAD_BASE_URL}/latest.json`;
+export const OPENREAD_UPDATER_FILE = `${LATEST_DOWNLOAD_BASE_URL}/latest.json`;
 
-export const READEST_CHANGELOG_FILE = `${LATEST_DOWNLOAD_BASE_URL}/release-notes.json`;
+export const OPENREAD_CHANGELOG_FILE = `${LATEST_DOWNLOAD_BASE_URL}/release-notes.json`;
 
-export const READEST_PUBLIC_STORAGE_BASE_URL = 'https://storage.openread.com';
+export const OPENREAD_PUBLIC_STORAGE_BASE_URL = 'https://storage.openread.com';
 
 export const CATALOG_API_BASE_URL =
   process.env['NEXT_PUBLIC_CATALOG_API_URL'] || 'https://api.openread.ai';
 
-export const READEST_OPDS_USER_AGENT = 'Openread/1.0 (OPDS Browser)';
+export const OPENREAD_OPDS_USER_AGENT = 'Openread/1.0 (OPDS Browser)';
 
 export const SYNC_PROGRESS_INTERVAL_SEC = 3;
 export const SYNC_NOTES_INTERVAL_SEC = 5;

@@ -57,11 +57,11 @@ pub fn handle_menu_event(app: &AppHandle, event: &MenuEvent) {
     if event.id() == "open_file" {
         handle_open_file(app);
     } else if event.id() == "privacy_policy" {
-        let _ = opener.open_url("https://openread.com/privacy-policy", None::<&str>);
+        let _ = opener.open_url("https://openread.ai/privacy-policy", None::<&str>);
     } else if event.id() == "report_issue" {
         let _ = opener.open_url("https://github.com/openread/openread/issues", None::<&str>);
     } else if event.id() == "openread_help" {
-        let _ = opener.open_url("https://openread.com/support", None::<&str>);
+        let _ = opener.open_url("https://openread.ai/support", None::<&str>);
     }
 }
 

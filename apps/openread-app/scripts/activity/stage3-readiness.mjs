@@ -42,13 +42,36 @@ checks.push(
     'Stage 4 native capture script exists',
   ),
 );
-checks.push(fileCheck(resolve(appRoot, '.env.web'), '.env.web exists for dev-web', 'warning'));
+checks.push(
+  fileCheck(
+    resolve(appRoot, '.env.web.example'),
+    '.env.web.example exists for optional dev-web overrides',
+  ),
+);
 checks.push(fileCheck(config.capturePlanPath, 'capture-plan.json exists'));
 checks.push(
-  fileCheck(resolve(appRoot, 'public/vendor/pdfjs'), 'PDF.js vendor assets exist', 'warning'),
+  fileCheck(resolve(appRoot, 'public/vendor/pdfjs/pdf.min.mjs'), 'PDF.js runtime bundle exists'),
 );
 checks.push(
-  fileCheck(resolve(appRoot, 'public/vendor/simplecc'), 'SimpleCC vendor assets exist', 'warning'),
+  fileCheck(
+    resolve(appRoot, 'public/vendor/pdfjs/pdf.worker.min.mjs'),
+    'PDF.js worker bundle exists',
+  ),
+);
+checks.push(
+  fileCheck(resolve(appRoot, 'public/vendor/pdfjs/openjpeg.wasm'), 'PDF.js OpenJPEG WASM exists'),
+);
+checks.push(
+  fileCheck(
+    resolve(appRoot, 'public/vendor/simplecc/simplecc_wasm.js'),
+    'SimpleCC JS vendor asset exists',
+  ),
+);
+checks.push(
+  fileCheck(
+    resolve(appRoot, 'public/vendor/simplecc/simplecc_wasm_bg.wasm'),
+    'SimpleCC WASM vendor asset exists',
+  ),
 );
 
 const packageJsonPath = resolve(appRoot, 'package.json');
@@ -78,7 +101,8 @@ checks.push({
 const configText = existsSync(resolve(appRoot, 'playwright.config.ts'))
   ? readFileSync(resolve(appRoot, 'playwright.config.ts'), 'utf8')
   : '';
-const projectMappings = resolveProjects(config.platforms);
+const effectivePlatforms = capturePlan?.platforms ?? config.platforms;
+const projectMappings = resolveProjects(effectivePlatforms);
 for (const mapping of projectMappings) {
   const projectConfigured =
     configText.includes(`name: '${mapping.project}'`) ||
@@ -119,10 +143,34 @@ if (capturePlan?.fixtures?.book?.mode === 'any-library-book') {
   );
 }
 
+if (capturePlan?.target?.screen === 'reader' && capturePlan?.fixtures?.auth === 'authenticated') {
+  for (const envName of [
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'R2_ACCESS_KEY_ID',
+    'R2_SECRET_ACCESS_KEY',
+    'R2_ACCOUNT_ID',
+  ]) {
+    checks.push({
+      label: `${envName} is available for authenticated reader capture`,
+      severity: 'error',
+      ok: Boolean(process.env[envName]),
+    });
+  }
+  checks.push({
+    label: 'R2 bucket is configured for authenticated reader capture',
+    severity: 'error',
+    ok: Boolean(process.env.R2_BUCKET || process.env.R2_BUCKET_NAME),
+  });
+}
+
 if (projectMappings.some((mapping) => mapping.project === 'msedge')) {
-  warnings.push(
-    'windows maps to the msedge project, which requires Microsoft Edge to be installed locally.',
-  );
+  checks.push({
+    label: 'Microsoft Edge is installed for windows/msedge Playwright lane',
+    severity: 'error',
+    ok: msedgeAvailable(),
+    detail:
+      'windows maps to Playwright project msedge, which requires a system Microsoft Edge install. Install with `pnpm --filter @openread/openread-app exec playwright install msedge` or install Microsoft Edge manually.',
+  });
 }
 
 if (
@@ -162,7 +210,7 @@ const report = {
   selector: config.selector,
   capturePlanPath: config.capturePlanPath,
   capturePlan,
-  platforms: config.platforms,
+  platforms: effectivePlatforms,
   projects: projectMappings,
   artifactDir: config.stage3Dir,
   checks,
@@ -193,6 +241,24 @@ function getNativeTargets(argv) {
     .split(',')
     .map((target) => target.trim())
     .filter(Boolean);
+}
+
+function msedgeAvailable() {
+  const candidates = [
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    resolve(
+      process.env.HOME ?? '',
+      'Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    ),
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+  ];
+  if (candidates.some((candidate) => existsSync(candidate))) return true;
+
+  const lookup = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['msedge'], {
+    encoding: 'utf8',
+  });
+  return lookup.status === 0;
 }
 
 function nativeReadinessChecks(target) {

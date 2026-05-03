@@ -6,7 +6,7 @@ import {
   isWebAppPlatform,
 } from '@/services/environment';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-import { READEST_OPDS_USER_AGENT } from '@/services/constants';
+import { OPENREAD_OPDS_USER_AGENT } from '@/services/constants';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('opds-req');
@@ -209,7 +209,7 @@ export const probeAuth = async (
 
   const fetchURL = useProxy ? getProxiedURL(cleanUrl) : cleanUrl;
   const headers: Record<string, string> = {
-    'User-Agent': READEST_OPDS_USER_AGENT,
+    'User-Agent': OPENREAD_OPDS_USER_AGENT,
     Accept: 'application/atom+xml, application/xml, text/xml, */*',
   };
 
@@ -292,7 +292,7 @@ export const fetchWithAuth = async (
 
   const fetchURL = useProxy ? getProxiedURL(cleanUrl) : cleanUrl;
   const headers: Record<string, string> = {
-    'User-Agent': READEST_OPDS_USER_AGENT,
+    'User-Agent': OPENREAD_OPDS_USER_AGENT,
     Accept: 'application/atom+xml, application/xml, text/xml, */*',
     ...(options.headers as Record<string, string>),
   };

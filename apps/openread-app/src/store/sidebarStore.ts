@@ -27,7 +27,6 @@ interface SidebarState {
   searchNavStates: Record<string, SearchNavState>;
   booknotesNavStates: Record<string, BooknotesNavState>;
   searchStatuses: Record<string, SearchStatus>;
-  getIsSideBarVisible: () => boolean;
   getSideBarWidth: () => string;
   setSideBarBookKey: (key: string) => void;
   setSideBarWidth: (width: string) => void;
@@ -77,7 +76,6 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
   searchNavStates: {},
   booknotesNavStates: {},
   searchStatuses: {},
-  getIsSideBarVisible: () => get().isSideBarVisible,
   getSideBarWidth: () => get().sideBarWidth,
   setSideBarBookKey: (key: string) => set({ sideBarBookKey: key }),
   setSideBarWidth: (width: string) => set({ sideBarWidth: width }),

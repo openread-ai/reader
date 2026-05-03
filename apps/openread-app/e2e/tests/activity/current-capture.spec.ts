@@ -38,11 +38,34 @@ test.describe('activity current-state capture', () => {
 
     mkdirSync(artifactDir, { recursive: true });
 
-    await navigateToActivityTarget(authenticatedPage, { route, screen });
+    await retryAsync(
+      async () => {
+        await navigateToActivityTarget(authenticatedPage, { route, screen });
+      },
+      { retries: 3, delayMs: 2_000 },
+    );
 
     await captureTarget({ page: authenticatedPage, testInfo });
   });
 });
+
+async function retryAsync(
+  task: () => Promise<void>,
+  options: { retries: number; delayMs: number },
+) {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= options.retries; attempt += 1) {
+    try {
+      await task();
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < options.retries)
+        await new Promise((resolve) => setTimeout(resolve, options.delayMs));
+    }
+  }
+  throw lastError;
+}
 
 async function captureTarget({ page, testInfo }: { page: Page; testInfo: TestInfo }) {
   if (!artifactDir) throw new Error('OPENREAD_ACTIVITY_ARTIFACT_DIR is required');

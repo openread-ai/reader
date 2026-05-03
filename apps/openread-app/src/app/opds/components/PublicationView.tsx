@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { IoPricetag } from 'react-icons/io5';
+import DOMPurify from 'dompurify';
 import { Book } from '@/types/book';
 import { OPDSLink, OPDSPublication, REL, SYMBOL } from '@/types/opds';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -231,10 +232,7 @@ export function PublicationView({
             {content ? (
               <div
                 dangerouslySetInnerHTML={{
-                  __html:
-                    content.type === 'html' || content.type === 'xhtml'
-                      ? content.value
-                      : content.value,
+                  __html: DOMPurify.sanitize(content.value),
                 }}
               />
             ) : (

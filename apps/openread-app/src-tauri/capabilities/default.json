@@ -85,6 +85,12 @@
           "url": "https://*.openread.com"
         },
         {
+          "url": "https://*.openread.ai"
+        },
+        {
+          "url": "https://*.openread.app"
+        },
+        {
           "url": "https://github.com/openread/*"
         },
         {
@@ -106,16 +112,76 @@
           "url": "https://translate.googleapis.com"
         },
         {
-          "url": "http://*:*"
+          "url": "https://*.supabase.co"
         },
         {
-          "url": "https://*:*"
+          "url": "https://*.sentry.io"
         },
         {
-          "url": "http://*"
+          "url": "https://*.posthog.com"
+        },
+        {
+          "url": "https://*.wikipedia.org"
+        },
+        {
+          "url": "https://*.wiktionary.org"
+        },
+        {
+          "url": "https://*.googleusercontent.com"
+        },
+        {
+          "url": "https://openlibrary.org"
+        },
+        {
+          "url": "https://covers.openlibrary.org"
+        },
+        {
+          "url": "https://api.openai.com"
+        },
+        {
+          "url": "https://api.anthropic.com"
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com"
+        },
+        {
+          "url": "https://api.groq.com"
+        },
+        {
+          "url": "https://api.deepseek.com"
+        },
+        {
+          "url": "https://openrouter.ai"
+        },
+        {
+          "url": "https://fonts.googleapis.com"
+        },
+        {
+          "url": "https://fonts.gstatic.com"
+        },
+        {
+          "url": "https://cdn.jsdelivr.net"
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com"
+        },
+        {
+          "url": "https://db.onlinewebfonts.com"
+        },
+        {
+          "url": "https://storage.openread.com"
+        },
+        {
+          "url": "https://cdn.openread.com"
+        },
+        {
+          "url": "https://speech.platform.bing.com"
         },
         {
           "url": "https://*"
+        },
+        {
+          "url": "http://localhost:*"
         }
       ]
     },

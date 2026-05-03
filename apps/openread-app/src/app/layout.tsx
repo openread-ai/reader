@@ -5,7 +5,7 @@ import Providers from '@/components/Providers';
 
 import '../styles/globals.css';
 
-const url = 'https://web.openread.com/';
+const url = 'https://app.openread.ai/';
 const title = 'Openread — Where You Read, Digest and Get Insight';
 const description =
   'Discover Openread, the ultimate online ebook reader for immersive and organized reading. ' +
@@ -15,7 +15,7 @@ const description =
 const previewImage = 'https://cdn.openread.com/images/open_graph_preview_read_now.png';
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://web.openread.com'),
+  metadataBase: new URL('https://app.openread.ai'),
   title,
   description,
   generator: 'Next.js',
@@ -102,7 +102,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta property='og:description' content={description} />
         <meta property='og:image' content={previewImage} />
         <meta name='twitter:card' content='summary_large_image' />
-        <meta property='twitter:domain' content='web.openread.com' />
+        <meta property='twitter:domain' content='app.openread.ai' />
         <meta property='twitter:url' content={url} />
         <meta name='twitter:title' content={title} />
         <meta name='twitter:description' content={description} />

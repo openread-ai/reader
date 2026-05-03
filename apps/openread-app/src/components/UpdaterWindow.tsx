@@ -20,7 +20,7 @@ import { installPackage } from '@/utils/bridge';
 import { join } from '@tauri-apps/api/path';
 import { getLocale } from '@/utils/misc';
 import { setLastShownReleaseNotesVersion } from '@/helpers/updater';
-import { READEST_UPDATER_FILE, READEST_CHANGELOG_FILE } from '@/services/constants';
+import { OPENREAD_UPDATER_FILE, OPENREAD_CHANGELOG_FILE } from '@/services/constants';
 import { createLogger } from '@/utils/logger';
 import Dialog from '@/components/Dialog';
 
@@ -119,7 +119,7 @@ export const UpdaterContent = ({
     const checkAndroidUpdate = async () => {
       if (!appService) return;
       const fetch = isTauriAppPlatform() ? tauriFetch : window.fetch;
-      const response = await fetch(READEST_UPDATER_FILE);
+      const response = await fetch(OPENREAD_UPDATER_FILE);
       const data = await response.json();
       if (semver.gt(data.version, currentVersion)) {
         const OS_ARCH = osArch();
@@ -216,7 +216,7 @@ export const UpdaterContent = ({
     const checkWindowsPortableUpdate = async () => {
       if (!appService) return;
       const fetch = isTauriAppPlatform() ? tauriFetch : window.fetch;
-      const response = await fetch(READEST_UPDATER_FILE);
+      const response = await fetch(OPENREAD_UPDATER_FILE);
       const data = await response.json();
       if (semver.gt(data.version, currentVersion)) {
         const OS_ARCH = osArch();
@@ -252,7 +252,7 @@ export const UpdaterContent = ({
     const checkAppImageUpdate = async () => {
       if (!appService) return;
       const fetch = isTauriAppPlatform() ? tauriFetch : window.fetch;
-      const response = await fetch(READEST_UPDATER_FILE);
+      const response = await fetch(OPENREAD_UPDATER_FILE);
       const data = await response.json();
       if (semver.gt(data.version, currentVersion)) {
         const OS_ARCH = osArch();
@@ -330,7 +330,7 @@ export const UpdaterContent = ({
     const fetchChangelogs = async (fromVersion: string): Promise<Changelog[]> => {
       try {
         const fetch = isTauriAppPlatform() ? tauriFetch : window.fetch;
-        const res = await fetch(READEST_CHANGELOG_FILE);
+        const res = await fetch(OPENREAD_CHANGELOG_FILE);
         const data: ReleaseNotes = await res.json();
         const releases = data.releases;
 

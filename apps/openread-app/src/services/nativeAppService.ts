@@ -55,9 +55,9 @@ const logger = createLogger('nativeAppService');
 
 declare global {
   interface Window {
-    __READEST_IS_EINK?: boolean;
-    __READEST_IS_APPIMAGE?: boolean;
-    __READEST_UPDATER_DISABLED?: boolean;
+    __OPENREAD_IS_EINK?: boolean;
+    __OPENREAD_IS_APPIMAGE?: boolean;
+    __OPENREAD_UPDATER_DISABLED?: boolean;
   }
 }
 
@@ -403,8 +403,8 @@ export class NativeAppService extends BaseAppService {
   override isLinuxApp = OS_TYPE === 'linux';
   override isMobileApp = ['android', 'ios'].includes(OS_TYPE);
   override isDesktopApp = ['macos', 'windows', 'linux'].includes(OS_TYPE);
-  override isAppImage = Boolean(window.__READEST_IS_APPIMAGE);
-  override isEink = Boolean(window.__READEST_IS_EINK);
+  override isAppImage = Boolean(window.__OPENREAD_IS_APPIMAGE);
+  override isEink = Boolean(window.__OPENREAD_IS_EINK);
   override hasTrafficLight = OS_TYPE === 'macos';
   override hasWindow = !(OS_TYPE === 'ios' || OS_TYPE === 'android');
   override hasWindowBar = !(OS_TYPE === 'ios' || OS_TYPE === 'android');
@@ -415,7 +415,7 @@ export class NativeAppService extends BaseAppService {
   override hasUpdater =
     OS_TYPE !== 'ios' &&
     !process.env['NEXT_PUBLIC_DISABLE_UPDATER'] &&
-    !window.__READEST_UPDATER_DISABLED;
+    !window.__OPENREAD_UPDATER_DISABLED;
   // orientation lock is not supported on iPad
   override hasOrientationLock =
     (OS_TYPE === 'ios' && getOSPlatform() === 'ios') || OS_TYPE === 'android';

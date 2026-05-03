@@ -24,7 +24,7 @@ const plan = buildPlan({
   screen,
   route: args.route,
   selector: args.selector,
-  platforms: config.platforms,
+  platforms: inferPlatforms(intent, config.platforms),
 });
 
 writeJson(config.capturePlanPath, plan);
@@ -74,6 +74,13 @@ function buildPlan({ config, intent, screen, route, selector, platforms }) {
         },
         library: 'seeded-library-with-at-least-one-book',
       },
+      nativeFixtures: {
+        requiredAdapters: ['native-route', 'native-onboarding', 'native-auth', 'native-book'],
+        auth: 'authenticated',
+        onboarding: 'skip',
+        book: args.bookTitle ? 'title' : 'first-library-book',
+        nativeTargets: defaultNativeTargets(platforms),
+      },
       openQuestions: args.bookTitle ? [] : ['Using first available seeded library book.'],
     };
   }
@@ -92,9 +99,29 @@ function buildPlan({ config, intent, screen, route, selector, platforms }) {
       book: { mode: 'none', title: null },
       library: 'not-required',
     },
+    nativeFixtures: {
+      requiredAdapters: ['native-route', 'native-onboarding', 'native-auth'],
+      auth: screenRequiresAuth(screen) ? 'authenticated' : 'anonymous',
+      onboarding: 'skip',
+      nativeTargets: defaultNativeTargets(platforms),
+    },
     openQuestions:
       screen === 'unknown' ? ['Agent should resolve the app screen before capture.'] : [],
   };
+}
+
+function inferPlatforms(value, fallback) {
+  const text = String(value).toLowerCase();
+  if (
+    text.includes('all configured browser/mobile') ||
+    text.includes('all supported') ||
+    text.includes('all platforms') ||
+    text.includes('five-platform') ||
+    text.includes('5 platform')
+  ) {
+    return ['web', 'macos', 'windows', 'ios', 'android'];
+  }
+  return fallback;
 }
 
 function inferScreen(value) {
@@ -105,6 +132,13 @@ function inferScreen(value) {
   if (text.includes('explore')) return 'explore';
   if (text.includes('home')) return 'home';
   return 'unknown';
+}
+
+function defaultNativeTargets(platforms) {
+  const targets = [];
+  if (platforms.includes('ios')) targets.push('ios-simulator');
+  if (platforms.includes('android')) targets.push('android-device');
+  return targets;
 }
 
 function defaultRouteForScreen(screen) {

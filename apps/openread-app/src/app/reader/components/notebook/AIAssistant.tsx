@@ -116,8 +116,14 @@ const AIAssistantChat = ({
   bookDoc: import('@/libs/document').BookDoc | null;
 }) => {
   const { getChapters } = useBookChapters(bookDoc);
-  const { activeConversationId, addMessage, renameConversation, isLoadingHistory } =
-    useAIChatStore();
+  const {
+    activeConversationId,
+    addMessage,
+    createConversation,
+    loadConversations,
+    setActiveConversation,
+    isLoadingHistory,
+  } = useAIChatStore();
 
   // Extract book metadata subjects
   const bookSubjects = useMemo(() => {
@@ -160,56 +166,81 @@ const AIAssistantChat = ({
 
   // create adapter ONCE and keep it stable
   const adapter = useMemo(() => {
-    // eslint-disable-next-line react-hooks/refs -- intentional: we read optionsRef inside a deferred callback, not during render
+    // eslint-disable-next-line react-hooks/refs -- intentional: read lazily by adapter outside render
     return createAgenticAdapter(() => optionsRef.current);
   }, []);
 
-  // Create history adapter to load/persist messages
-  const historyAdapter = useMemo<ThreadHistoryAdapter | undefined>(() => {
-    if (!activeConversationId) return undefined;
+  // Auto-load existing conversations when the AI tab mounts and select the
+  // most recent one if the reader has no active conversation. This keeps
+  // persistence available even when the user opens the AI tab before clicking
+  // "New chat".
+  const autoLoadedBookHash = useRef<string | null>(null);
+  useEffect(() => {
+    if (!bookHash || autoLoadedBookHash.current === bookHash) return;
+    autoLoadedBookHash.current = bookHash;
 
+    loadConversations(bookHash).then(() => {
+      const state = useAIChatStore.getState();
+      const activeConversation = state.conversations.find(
+        (conversation) => conversation.id === state.activeConversationId,
+      );
+      if (activeConversation?.bookHash === bookHash) return;
+
+      const mostRecent = state.conversations.find(
+        (conversation) => conversation.bookHash === bookHash,
+      );
+      void setActiveConversation(mostRecent?.id ?? null);
+    });
+  }, [bookHash, loadConversations, setActiveConversation]);
+
+  // Create history adapter to load/persist messages. Always define the
+  // adapter and create the backing conversation on first append if needed;
+  // otherwise first messages can become orphaned before a conversation exists.
+  const historyAdapter = useMemo<ThreadHistoryAdapter>(() => {
     return {
       async load() {
-        // Read from store directly (not closure) to avoid stale data when
-        // the runtime calls load() after the adapter reference has changed.
-        const { messages } = useAIChatStore.getState();
+        const { messages, activeConversationId: convId } = useAIChatStore.getState();
+        if (!convId) return { messages: [] };
         return {
           messages: convertToExportedMessages(messages),
         };
       },
       async append(item) {
-        // item is ExportedMessageRepositoryItem with { message, parentId }
         const msg = item.message;
-        if (activeConversationId && msg.role !== 'system') {
-          const textContent = msg.content
-            .filter(
-              (part): part is { type: 'text'; text: string } =>
-                'type' in part && part.type === 'text',
-            )
-            .map((part) => part.text)
-            .join('\n');
+        if (msg.role === 'system') return;
 
-          if (textContent) {
-            // Deduplicate: skip if this exact message ID already exists in store
-            const current = useAIChatStore.getState().messages;
-            if (current.some((m) => m.id === msg.id)) return;
+        const textContent = msg.content
+          .filter(
+            (part): part is { type: 'text'; text: string } =>
+              'type' in part && part.type === 'text',
+          )
+          .map((part) => part.text)
+          .join('\n');
+        if (!textContent) return;
 
-            await addMessage({
-              conversationId: activeConversationId,
-              role: msg.role as 'user' | 'assistant',
-              content: textContent,
-              parentId: item.parentId ?? null,
-            });
-
-            // Rename conversation to first user message
-            if (msg.role === 'user' && useAIChatStore.getState().messages.length === 0) {
-              await renameConversation(activeConversationId, textContent.slice(0, 50));
-            }
-          }
+        const state = useAIChatStore.getState();
+        const activeConversation = state.conversations.find(
+          (conversation) => conversation.id === state.activeConversationId,
+        );
+        let conversationId =
+          activeConversation?.bookHash === bookHash ? activeConversation.id : null;
+        if (!conversationId) {
+          conversationId = await createConversation(bookHash, textContent.slice(0, 50));
         }
+
+        // Deduplicate: skip if this exact message ID already exists in store
+        const current = useAIChatStore.getState().messages;
+        if (current.some((m) => m.id === msg.id)) return;
+
+        await addMessage({
+          conversationId,
+          role: msg.role as 'user' | 'assistant',
+          content: textContent,
+          parentId: item.parentId ?? null,
+        });
       },
     };
-  }, [activeConversationId, addMessage, renameConversation]);
+  }, [addMessage, createConversation, bookHash]);
 
   // BYOK: determine if user has a BYOK provider selected
   const byokProvider = aiSettings.byokProvider;
@@ -258,7 +289,7 @@ const AIAssistantWithRuntime = ({
   onSelectModel,
 }: {
   adapter: NonNullable<ReturnType<typeof createAgenticAdapter>>;
-  historyAdapter?: ThreadHistoryAdapter;
+  historyAdapter: ThreadHistoryAdapter;
   bookKey: string;
   isLoadingHistory: boolean;
   hasActiveConversation: boolean;
@@ -268,7 +299,7 @@ const AIAssistantWithRuntime = ({
   onSelectModel?: (modelId: string) => void;
 }) => {
   const runtime = useLocalRuntime(adapter, {
-    adapters: historyAdapter ? { history: historyAdapter } : undefined,
+    adapters: { history: historyAdapter },
   });
 
   if (!runtime) return null;

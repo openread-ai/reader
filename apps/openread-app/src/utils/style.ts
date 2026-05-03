@@ -7,6 +7,7 @@ import {
   CJK_SERIF_FONTS,
 } from '@/services/constants';
 import { ViewSettings } from '@/types/book';
+import { useSettingsStore } from '@/store/settingsStore';
 import {
   themes,
   Palette,
@@ -522,7 +523,7 @@ export const getThemeCode = () => {
   if (typeof window !== 'undefined') {
     themeColor = localStorage.getItem('themeColor') || 'default';
     themeMode = localStorage.getItem('themeMode') || 'auto';
-    customThemes = JSON.parse(localStorage.getItem('customThemes') || '[]');
+    customThemes = useSettingsStore.getState().settings.globalReadSettings?.customThemes ?? [];
     systemIsDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
   const isDarkMode = themeMode === 'dark' || (themeMode === 'auto' && systemIsDarkMode);

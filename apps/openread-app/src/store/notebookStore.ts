@@ -12,7 +12,6 @@ interface NotebookState {
   notebookNewAnnotation: TextSelection | null;
   notebookEditAnnotation: BookNote | null;
   notebookAnnotationDrafts: { [key: string]: string };
-  getIsNotebookVisible: () => boolean;
   toggleNotebook: () => void;
   toggleNotebookPin: () => void;
   getNotebookWidth: () => string;
@@ -34,7 +33,6 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   notebookNewAnnotation: null,
   notebookEditAnnotation: null,
   notebookAnnotationDrafts: {},
-  getIsNotebookVisible: () => get().isNotebookVisible,
   getNotebookWidth: () => get().notebookWidth,
   setNotebookWidth: (width: string) => set({ notebookWidth: width }),
   toggleNotebook: () => set((state) => ({ isNotebookVisible: !state.isNotebookVisible })),

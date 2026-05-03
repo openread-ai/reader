@@ -36,10 +36,7 @@ runStep({
   command: 'pnpm',
   args: ['--filter', '@openread/openread-app', 'setup-vendors'],
   cwd: repoRoot,
-  skip:
-    existsSync(resolve(appRoot, 'public/vendor/pdfjs')) &&
-    existsSync(resolve(appRoot, 'public/vendor/simplecc')) &&
-    args.force !== true,
+  skip: vendorAssetsReady(appRoot) && args.force !== true,
 });
 
 runStep({
@@ -91,6 +88,16 @@ writeJson(resolve(bootstrapDir, 'bootstrap-report.json'), report);
 console.log(JSON.stringify(report, null, 2));
 
 if (failed.length > 0) process.exit(1);
+
+function vendorAssetsReady(root) {
+  return [
+    'public/vendor/pdfjs/pdf.min.mjs',
+    'public/vendor/pdfjs/pdf.worker.min.mjs',
+    'public/vendor/pdfjs/openjpeg.wasm',
+    'public/vendor/simplecc/simplecc_wasm.js',
+    'public/vendor/simplecc/simplecc_wasm_bg.wasm',
+  ].every((relativePath) => existsSync(resolve(root, relativePath)));
+}
 
 function runStep({ name, command, args: commandArgs, cwd, skip = false }) {
   if (skip) {

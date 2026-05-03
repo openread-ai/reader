@@ -6,6 +6,8 @@
  * and annotations to AI assistants and other MCP clients.
  */
 
+import type { BookFormat } from './book.js';
+
 /**
  * Book information returned by MCP list_books and get_book_info tools.
  *
@@ -30,7 +32,7 @@ export interface McpBookInfo {
   /**
    * File format (e.g., "epub", "pdf").
    */
-  format: string;
+  format: BookFormat;
 
   /**
    * Total number of chapters/sections in the book.
@@ -147,7 +149,7 @@ export interface McpAnnotation {
   cfi: string;
 
   /**
-   * ISO 8601 timestamp of when the annotation was created.
+   * Epoch-millisecond timestamp of when the annotation was created.
    */
-  createdAt: string;
+  createdAt: number;
 }

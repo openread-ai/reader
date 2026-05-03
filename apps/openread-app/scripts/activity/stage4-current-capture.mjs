@@ -11,6 +11,8 @@ if (args.help || args.h) {
 }
 
 const config = getActivityConfig(argv);
+const capturePlan = readJsonIfExists(config.capturePlanPath);
+const effectivePlatforms = capturePlan?.platforms ?? config.platforms;
 const startedAtMs = Date.now();
 const startedAt = new Date(startedAtMs).toISOString();
 const artifactDir = config.stage4Dir;
@@ -20,7 +22,12 @@ ensureDir(artifactDir);
 
 const captures = lanes.map((lane) => {
   if (lane === 'browser') {
-    return runLane('browser', 'node', ['scripts/activity/stage4-browser-capture.mjs', ...argv]);
+    return runLane('browser', 'node', [
+      'scripts/activity/stage4-browser-capture.mjs',
+      ...argv,
+      '--platforms',
+      effectivePlatforms.join(','),
+    ]);
   }
   return runLane('native', 'node', ['scripts/activity/stage4-native-capture.mjs', ...argv]);
 });
@@ -35,7 +42,7 @@ const report = {
   activityId: config.activityId,
   activityUuid: config.activityUuid,
   attemptId: config.attemptId,
-  platforms: config.platforms,
+  platforms: effectivePlatforms,
   captureLane: args.captureLane ?? 'auto',
   lanes,
   artifactDir,

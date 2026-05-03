@@ -53,12 +53,14 @@ if (args.textOnly === true) {
     pageId: String(args.page),
     files,
     heading: args.heading,
+    section: args.section,
   });
   const report = baseReport({
     result: 'passed',
     mode: 'text-only-attached',
     files: files.map(fileSummary),
     attachedBlockId: attached?.id ?? null,
+    attachedSectionBlockId: attached?.sectionBlockId ?? null,
     notionPageId: args.page ?? null,
     nextAction: 'Verify rendered metadata preview on the Activity Log page.',
   });
@@ -81,6 +83,7 @@ const attached =
         layout: String(args.layout ?? (uploads.length > 1 ? 'columns' : 'single')),
         caption: args.caption,
         heading: args.heading,
+        section: args.section,
       })
     : null;
 
@@ -93,6 +96,7 @@ const report = baseReport({
     fileUpload: fileUploadSummary(upload.sent),
   })),
   attachedBlockId: attached?.id ?? null,
+  attachedSectionBlockId: attached?.sectionBlockId ?? null,
   attachedLayout: attached?.layout ?? null,
   notionPageId: args.page ?? null,
   nextAction: attached
@@ -207,22 +211,25 @@ async function notionRequest({ notionToken, path, method, body }) {
   return parseNotionResponse(res, method, path);
 }
 
-async function appendTextPreviews({ notionToken, pageId, files, heading }) {
+async function appendTextPreviews({ notionToken, pageId, files, heading, section }) {
   const children = [];
   if (heading) children.push(headingBlock(String(heading)));
   children.push(...files.flatMap((file) => textPreviewBlocks(file)));
 
+  const targetBlockId = section
+    ? await findOrCreateSectionBlockId({ notionToken, pageId, section })
+    : null;
   const res = await notionRequest({
     notionToken,
-    path: `/v1/blocks/${pageId}/children`,
+    path: `/v1/blocks/${targetBlockId ?? pageId}/children`,
     method: 'PATCH',
     body: { children },
   });
 
-  return res.results?.[0] ?? null;
+  return { id: res.results?.[0]?.id ?? null, sectionBlockId: targetBlockId ?? pageId };
 }
 
-async function appendUploads({ notionToken, pageId, uploads, layout, caption, heading }) {
+async function appendUploads({ notionToken, pageId, uploads, layout, caption, heading, section }) {
   const children = [];
   if (heading) children.push(headingBlock(String(heading)));
 
@@ -252,14 +259,59 @@ async function appendUploads({ notionToken, pageId, uploads, layout, caption, he
     children.push(...uploads.flatMap((upload) => textPreviewBlocks(upload)));
   }
 
+  const targetBlockId = section
+    ? await findOrCreateSectionBlockId({ notionToken, pageId, section })
+    : null;
   const res = await notionRequest({
     notionToken,
-    path: `/v1/blocks/${pageId}/children`,
+    path: `/v1/blocks/${targetBlockId ?? pageId}/children`,
     method: 'PATCH',
     body: { children },
   });
 
-  return { id: res.results?.[0]?.id ?? null, layout };
+  return { id: res.results?.[0]?.id ?? null, layout, sectionBlockId: targetBlockId ?? pageId };
+}
+
+async function findOrCreateSectionBlockId({ notionToken, pageId, section }) {
+  const existing = await findSectionBlockId({ notionToken, pageId, section });
+  if (existing) return existing;
+
+  const created = await notionRequest({
+    notionToken,
+    path: `/v1/blocks/${pageId}/children`,
+    method: 'PATCH',
+    body: { children: [sectionToggleBlock(String(section))] },
+  });
+  return created.results?.[0]?.id ?? pageId;
+}
+
+async function findSectionBlockId({ notionToken, pageId, section }) {
+  let cursor = null;
+  do {
+    const query = cursor
+      ? `?start_cursor=${encodeURIComponent(cursor)}&page_size=100`
+      : '?page_size=100';
+    const response = await notionRequest({
+      notionToken,
+      path: `/v1/blocks/${pageId}/children${query}`,
+      method: 'GET',
+    });
+    const match = response.results?.find(
+      (block) => blockText(block) === String(section) && blockSupportsChildren(block),
+    );
+    if (match) return match.id;
+    cursor = response.has_more ? response.next_cursor : null;
+  } while (cursor);
+  return null;
+}
+
+function blockText(block) {
+  const value = block[block.type]?.rich_text ?? [];
+  return value.map((part) => part.plain_text ?? '').join('');
+}
+
+function blockSupportsChildren(block) {
+  return ['toggle', 'column', 'column_list', 'synced_block', 'template'].includes(block.type);
 }
 
 function uploadBlock(upload, caption) {
@@ -281,6 +333,16 @@ function headingBlock(text) {
     object: 'block',
     type: 'heading_3',
     heading_3: { rich_text: [{ type: 'text', text: { content: text.slice(0, 1_900) } }] },
+  };
+}
+
+function sectionToggleBlock(text) {
+  return {
+    object: 'block',
+    type: 'toggle',
+    toggle: {
+      rich_text: [{ type: 'text', text: { content: text.slice(0, 1_900) } }],
+    },
   };
 }
 
@@ -367,6 +429,7 @@ Options:
   --page <id>             Attach uploaded file/image to this Notion page
   --layout single|columns Attach multiple files vertically or side-by-side columns
   --heading <text>        Optional heading before attached evidence
+  --section <title>       Attach evidence inside a childable section toggle; creates it if missing
   --caption <text>        Caption; use | separators for multiple files
   --render-text           Also render small text/json files as readable Notion code blocks
   --text-only             Render text/json as Notion code blocks without uploading a file link

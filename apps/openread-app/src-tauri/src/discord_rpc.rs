@@ -119,7 +119,7 @@ pub async fn update_book_presence(
 
     activity_builder = activity_builder.assets(assets_builder);
 
-    let button = activity::Button::new("Read on Openread", "https://web.openread.com");
+    let button = activity::Button::new("Read on Openread", "https://app.openread.ai");
     activity_builder = activity_builder.buttons(vec![button]);
 
     if let Some(ref mut discord_client) = client.client {

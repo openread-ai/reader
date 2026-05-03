@@ -73,6 +73,7 @@ const response = await fetch('https://api.notion.com/v1/databases', {
       'Worktree Path': { rich_text: {} },
       'PR URL': { url: {} },
       'Activity Progress History': { rich_text: {} },
+      'Activity Created At': { date: {} },
       'Last Synced At': { date: {} },
     },
   }),

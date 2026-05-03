@@ -219,7 +219,7 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
     return (
       loading &&
       !errorLoading && (
-        <div className='hero hero-content full-height'>
+        <div className='hero hero-content full-height' data-testid='reader-loading'>
           <Spinner loading={true} />
         </div>
       )
@@ -227,7 +227,7 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
   }
 
   return (
-    <div className='reader-content full-height flex'>
+    <div className='reader-content full-height flex' data-testid='reader-content-ready'>
       <SideBar onGoToLibrary={handleCloseBooksToLibrary} />
       <BooksGrid bookKeys={bookKeys} onCloseBook={handleCloseBook} />
       {isSettingsDialogOpen && <SettingsDialog bookKey={settingsDialogBookKey} />}

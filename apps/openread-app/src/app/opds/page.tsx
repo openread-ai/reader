@@ -36,7 +36,7 @@ import {
   needsProxy,
   probeFilename,
 } from './utils/opdsReq';
-import { READEST_OPDS_USER_AGENT } from '@/services/constants';
+import { OPENREAD_OPDS_USER_AGENT } from '@/services/constants';
 import { FeedView } from './components/FeedView';
 import { PublicationView } from './components/PublicationView';
 import { SearchView } from './components/SearchView';
@@ -471,7 +471,7 @@ export default function BrowserPage() {
           const useProxy = needsProxy(url);
           const downloadUrl = useProxy ? getProxiedURL(url, '', true) : url;
           const headers: Record<string, string> = {
-            'User-Agent': READEST_OPDS_USER_AGENT,
+            'User-Agent': OPENREAD_OPDS_USER_AGENT,
             Accept: '*/*',
           };
           if (username || password) {

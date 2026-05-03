@@ -53,14 +53,15 @@ specs run across every project.
 | `chromium`        | web · mac-web · windows-web | Desktop Chrome baseline                                                       |
 | `webkit`          | mac (Tauri WKWebView proxy) | Desktop Safari — the engine Tauri macOS uses                                  |
 | `msedge`          | windows-web                 | Uses installed Edge channel                                                   |
-| `mobile-chromium` | android (web layer)         | Pixel 8 viewport+UA — **not** a real Android device                           |
+| `mobile-chromium` | android (web layer)         | Playwright Pixel 7 viewport+UA — **not** a real Android device                |
 | `mobile-webkit`   | ios · ipad (web layer)      | iPhone 15 Pro viewport+UA — **not** a real iPhone                             |
 | `ui-regression`   | visual baselines            | Pinned 1440×900 viewport, baselines in `~/.openread-dev/artifacts/baselines/` |
 
 **What is NOT covered here** (by design):
 
 - Real iOS device UI — Playwright can't drive a real iPhone; needs `ios-deploy` + Appium/XCUITest
-- Real Android device — Playwright can't drive a real device; needs Appium + ADB
+- Real Android emulator/device — Playwright doesn't cover this lane; use the V3 Android native scripts with `Openread_Pixel_8_API_35` + ADB. Readiness can warm the emulator with `pnpm activity:android-smoke -- --warm-only --lock-wait-ms 300000` from `apps/openread-app/`.
+- Native fixture expansion — Playwright fixtures do not auto-translate to native devices; use `pnpm activity:native-fixtures -- --native-targets ios-simulator,android-device` to generate the native fixture manifest/commands from the shared capture plan. Implemented native fixture adapters cover route/deep-link, onboarding skip, anonymous auth, and guarded book/auth readiness; future theme/locale/permissions/network/subscription adapters are reserved and block until implemented. iOS simulator readiness can warm with `pnpm activity:stage4-native -- --native-targets ios-simulator --warm-only --lock-wait-ms 300000`.
 - macOS / Windows Tauri native shell — Playwright drives browsers, not Tauri windows; needs `tauri-driver`
 - Linux — not a supported product platform
 
@@ -94,6 +95,14 @@ If msedge isn't installed, that one project fails with
 (chromium, webkit, mobile-chromium, mobile-webkit) run unaffected.
 
 ### 3. Run specs
+
+Readiness health smoke:
+
+```sh
+pnpm activity:platform-health --activity sandbox-health --attempt health-1 --platforms web,ios,android
+```
+
+This runs Openread load + login/logout health on selected Playwright web-layer lanes and launches Openread on selected native targets. Add `--require-native-auth true` when native login/logout must be a hard readiness gate; true native login/logout requires a secure native auth fixture/session and is not faked through deep-link secrets.
 
 ```sh
 # Fast feedback — one spec on chromium:

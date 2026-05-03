@@ -52,6 +52,6 @@ describe('robots.ts', () => {
 
   it('should reference the sitemap at the correct URL', () => {
     const result = robots();
-    expect(result.sitemap).toBe('https://web.openread.com/sitemap.xml');
+    expect(result.sitemap).toBe('https://app.openread.ai/sitemap.xml');
   });
 });

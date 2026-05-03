@@ -20,6 +20,11 @@ export default function ActivityCaptureBridge() {
     if (!isTauriAppPlatform() || !appService) return;
 
     const handleTarget = async (target: ActivityCaptureTarget) => {
+      if (target.onboarding === 'skip') {
+        localStorage.setItem('has_seen_welcome', 'true');
+        localStorage.setItem('openread_onboarding_completed', new Date().toISOString());
+      }
+
       const wantsReader =
         target.screen === 'reader' ||
         target.state?.includes('reader') ||

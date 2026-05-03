@@ -5,6 +5,10 @@ export type ActivityCaptureTarget = {
   screen: string | null;
   state: string | null;
   book: string | null;
+  auth: string | null;
+  account: string | null;
+  library: string | null;
+  onboarding: string | null;
 };
 
 export function isActivityCaptureUrl(value: string): boolean {
@@ -33,6 +37,10 @@ export function parseActivityCaptureTarget(value: string): ActivityCaptureTarget
       screen: url.searchParams.get('screen'),
       state: url.searchParams.get('state'),
       book: url.searchParams.get('book'),
+      auth: url.searchParams.get('auth'),
+      account: url.searchParams.get('account'),
+      library: url.searchParams.get('library'),
+      onboarding: url.searchParams.get('onboarding'),
     };
   } catch {
     return null;

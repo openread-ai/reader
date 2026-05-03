@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import React from 'react';
+import DOMPurify from 'dompurify';
 import {
   MdOutlineCloudDownload,
   MdOutlineCloudUpload,
@@ -178,7 +179,7 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
           <p
             className='text-neutral-content prose prose-sm max-w-full whitespace-pre-line text-sm'
             dangerouslySetInnerHTML={{
-              __html: metadata?.description || _('No description available'),
+              __html: DOMPurify.sanitize(metadata?.description || _('No description available')),
             }}
           ></p>
         </div>

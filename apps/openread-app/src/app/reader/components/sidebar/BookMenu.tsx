@@ -15,7 +15,7 @@ import { useParallelViewStore } from '@/store/parallelViewStore';
 // import { isWebAppPlatform } from '@/services/environment'; // disabled: About Openread
 import { eventDispatcher } from '@/utils/event';
 import { FIXED_LAYOUT_FORMATS } from '@/types/book';
-// import { DOWNLOAD_READEST_URL } from '@/services/constants'; // disabled: Download Openread
+// import { DOWNLOAD_OPENREAD_URL } from '@/services/constants'; // disabled: Download Openread
 // import { navigateToLogin } from '@/utils/nav'; // disabled: Discord
 // import { saveSysSettings } from '@/helpers/settings'; // disabled: Discord
 // import { setKOSyncSettingsWindowVisible } from '@/app/reader/components/KOSyncSettings'; // disabled: KOReader
@@ -59,7 +59,7 @@ const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen })
   };
   // disabled: About Openread
   // const showAboutOpenread = () => { setAboutDialogVisible(true); setIsDropdownOpen?.(false); };
-  // const downloadOpenread = () => { window.open(DOWNLOAD_READEST_URL, '_blank'); setIsDropdownOpen?.(false); };
+  // const downloadOpenread = () => { window.open(DOWNLOAD_OPENREAD_URL, '_blank'); setIsDropdownOpen?.(false); };
   const handleExportAnnotations = () => {
     eventDispatcher.dispatch('export-annotations', { bookKey: sideBarBookKey });
     setIsDropdownOpen?.(false);

@@ -2,6 +2,24 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 
+export const ACTIVITY_TIME_ZONE = 'America/Chicago';
+
+export function formatActivityTimestamp(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: ACTIVITY_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+    .formatToParts(date)
+    .reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} CT`;
+}
+
 export const platformProjects = {
   web: 'chromium',
   macos: 'webkit',
@@ -92,6 +110,10 @@ export function buildActivityCaptureUrl(plan) {
   url.searchParams.set('route', route);
   if (plan.target.screen) url.searchParams.set('screen', plan.target.screen);
   if (plan.target.state) url.searchParams.set('state', plan.target.state);
+  if (plan.fixtures?.auth) url.searchParams.set('auth', plan.fixtures.auth);
+  if (plan.fixtures?.account) url.searchParams.set('account', plan.fixtures.account);
+  if (plan.fixtures?.library) url.searchParams.set('library', plan.fixtures.library);
+  url.searchParams.set('onboarding', 'skip');
   if (plan.fixtures?.book?.mode === 'any-library-book') {
     url.searchParams.set('book', 'first-library-book');
   }
@@ -215,7 +237,7 @@ export function acquirePlatformLock({ platform, owner, waitMs = 0, staleMs = 30 
       };
       writeJson(resolve(lockDir, 'lock.json'), lock);
       return { path: lockDir, lock };
-    } catch (error) {
+    } catch (_error) {
       const existing = readJsonIfExists(resolve(lockDir, 'lock.json'));
       const expiresAt = existing?.expiresAt ? Date.parse(existing.expiresAt) : null;
       if (expiresAt && expiresAt < Date.now()) {

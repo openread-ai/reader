@@ -1,5 +1,5 @@
 {
-  "base_url": "https://web.openread.com/api",
+  "base_url": "https://app.openread.ai/api",
   "name": "openread-sync-api",
   "methods": {
     "pullChanges": {

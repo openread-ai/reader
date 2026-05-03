@@ -9,6 +9,6 @@ export default function robots(): MetadataRoute.Robots {
         disallow: ['/api/', '/library/', '/reader/', '/settings/'],
       },
     ],
-    sitemap: 'https://web.openread.com/sitemap.xml',
+    sitemap: 'https://app.openread.ai/sitemap.xml',
   };
 }

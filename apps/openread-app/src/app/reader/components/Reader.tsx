@@ -74,8 +74,8 @@ const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
   const { getScreenBrightness, setScreenBrightness } = useDeviceControlStore.getState();
   const { acquireBackKeyInterception, releaseBackKeyInterception } =
     useDeviceControlStore.getState();
-  const { getIsSideBarVisible, setSideBarVisible } = useSidebarStore.getState();
-  const { getIsNotebookVisible, setNotebookVisible } = useNotebookStore.getState();
+  const { setSideBarVisible } = useSidebarStore.getState();
+  const { setNotebookVisible } = useNotebookStore.getState();
 
   useTheme({ systemUIVisible: settings.alwaysShowStatusBar, appThemeColor: 'base-100' });
   useScreenWakeLock(settings.screenWakeLock);
@@ -125,9 +125,9 @@ const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
 
   const handleKeyDown = (event: CustomEvent) => {
     if (event.detail.keyName === 'Back') {
-      if (getIsSideBarVisible() && !isSideBarPinned) {
+      if (isSideBarVisible && !isSideBarPinned) {
         setSideBarVisible(false);
-      } else if (getIsNotebookVisible() && !isNotebookPinned) {
+      } else if (isNotebookVisible && !isNotebookPinned) {
         setNotebookVisible(false);
       } else {
         eventDispatcher.dispatch('close-reader');

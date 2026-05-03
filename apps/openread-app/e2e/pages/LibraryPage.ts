@@ -22,7 +22,8 @@ const BOOK_LINK_SELECTOR = 'a[href*="/reader?ids="]';
 
 export class LibraryPage extends BasePage {
   async goto(): Promise<void> {
-    await this.page.goto('/library');
+    await this.page.goto('/library', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await this.page.waitForURL((url) => url.pathname === '/library', { timeout: 30_000 });
   }
 
   firstBookLink(): Locator {

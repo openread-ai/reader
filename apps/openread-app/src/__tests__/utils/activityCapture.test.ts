@@ -14,13 +14,17 @@ describe('activityCapture helpers', () => {
   it('parses target metadata from activity capture URLs', () => {
     expect(
       parseActivityCaptureTarget(
-        'openread://activity-capture?route=%2Freader&screen=reader&state=reader-open&book=first-library-book',
+        'openread://activity-capture?route=%2Freader&screen=reader&state=reader-open&book=first-library-book&auth=authenticated&account=shared-test-account&library=seeded-library&onboarding=skip',
       ),
     ).toEqual({
       route: '/reader',
       screen: 'reader',
       state: 'reader-open',
       book: 'first-library-book',
+      auth: 'authenticated',
+      account: 'shared-test-account',
+      library: 'seeded-library',
+      onboarding: 'skip',
     });
   });
 
@@ -36,6 +40,10 @@ describe('activityCapture helpers', () => {
       screen: null,
       state: null,
       book: null,
+      auth: null,
+      account: null,
+      library: null,
+      onboarding: null,
     });
   });
 });

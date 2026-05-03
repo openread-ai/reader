@@ -13,6 +13,7 @@ import {
   releasePlatformLock,
   writeJson,
 } from './common.mjs';
+import { buildNativeFixtureManifest, writeNativeFixtureManifest } from './native-fixtures.mjs';
 
 const config = getActivityConfig(process.argv.slice(2));
 const startedAtMs = Date.now();
@@ -26,11 +27,26 @@ const androidPackage =
   args.androidPackage ?? process.env.OPENREAD_ANDROID_PACKAGE ?? 'com.reglity.openread';
 const openUrl =
   args.openUrl ?? process.env.OPENREAD_NATIVE_OPEN_URL ?? buildActivityCaptureUrl(capturePlan);
+const warmOnly =
+  args.warmOnly === true ||
+  args.warmOnly === 'true' ||
+  process.env.OPENREAD_NATIVE_WARM_ONLY === 'true';
 const delayMs = Number(args.delayMs ?? process.env.OPENREAD_NATIVE_CAPTURE_DELAY_MS ?? 2_000);
 const lockWaitMs = Number(args.lockWaitMs ?? process.env.OPENREAD_ACTIVITY_LOCK_WAIT_MS ?? 0);
 const artifactDir = resolve(config.stage4Dir, 'native');
 
 ensureDir(artifactDir);
+const nativeFixtureManifestPath = resolve(artifactDir, 'native-fixture-manifest.json');
+const nativeFixtureManifest = writeNativeFixtureManifest(
+  nativeFixtureManifestPath,
+  buildNativeFixtureManifest({
+    config,
+    capturePlan,
+    nativeTargets,
+    openUrl,
+    mode: 'capture',
+  }),
+);
 
 const runSummary = {
   schemaVersion: 1,
@@ -45,6 +61,9 @@ const runSummary = {
   appBundleId,
   androidPackage,
   openUrl,
+  warmOnly,
+  nativeFixtureManifestPath,
+  nativeFixtures: nativeFixtureManifest,
   delayMs,
   artifactDir,
   startedAt,
@@ -52,7 +71,15 @@ const runSummary = {
 
 writeJson(resolve(artifactDir, 'native-capture-run.json'), runSummary);
 
-const captures = nativeTargets.map((target) => captureNativeTarget(target));
+const captures =
+  nativeFixtureManifest.result === 'blocked'
+    ? nativeTargets.map((target) => ({
+        target,
+        result: 'failed',
+        error: 'Native fixture manifest is blocked; see native-fixture-manifest.json.',
+        createdAt: new Date().toISOString(),
+      }))
+    : nativeTargets.map((target) => captureNativeTarget(target));
 const failed = captures.filter((capture) => capture.result === 'failed');
 const skipped = captures.filter((capture) => capture.result === 'skipped');
 const result = failed.length > 0 ? 'failed' : skipped.length > 0 ? 'partial' : 'passed';
@@ -143,6 +170,17 @@ function captureIosSimulator(targetDevice) {
     });
   }
 
+  if (warmOnly) {
+    releasePlatformLock(lock.handle);
+    return writeCaptureMetadata(metadataPath, {
+      target,
+      result: 'warmed',
+      screenshotPath,
+      device: selectedDevice,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
   const launch = openUrl
     ? command('xcrun', ['simctl', 'openurl', selectedDevice.udid, openUrl])
     : command('xcrun', ['simctl', 'launch', selectedDevice.udid, appBundleId]);
@@ -202,6 +240,16 @@ function captureIosDevice() {
     });
   }
 
+  if (warmOnly) {
+    releasePlatformLock(lock.handle);
+    return writeCaptureMetadata(metadataPath, {
+      target,
+      result: 'warmed',
+      screenshotPath,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
   if (openUrl) {
     command('xcrun', ['devicectl', 'device', 'open', 'url', openUrl]);
   } else {
@@ -240,6 +288,18 @@ function captureAndroid(target) {
       result: 'failed',
       screenshotPath,
       error: devices.detail,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  if (warmOnly) {
+    releasePlatformLock(lock.handle);
+    return writeCaptureMetadata(metadataPath, {
+      target,
+      result: 'warmed',
+      screenshotPath,
+      serial,
+      devices: devices.detail,
       createdAt: new Date().toISOString(),
     });
   }

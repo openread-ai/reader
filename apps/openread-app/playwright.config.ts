@@ -32,6 +32,8 @@ for (const file of ['.env.test.local', '.env.local', '.env']) {
 }
 
 const BUCKET = process.env.OPENREAD_BUCKET_DIR ?? resolve(homedir(), '.openread-dev/artifacts');
+const screenshotMode =
+  process.env.OPENREAD_PLAYWRIGHT_SCREENSHOT === 'on' ? 'on' : 'only-on-failure';
 
 export default defineConfig({
   testDir: './e2e',
@@ -59,13 +61,14 @@ export default defineConfig({
     // the screenshot option (which in recent @playwright/test no longer
     // accepts a `path` field on the object form). Per-project snapshot
     // directories land under {snapshotDir}/{testFileName}/.
-    screenshot: 'only-on-failure',
+    screenshot: screenshotMode,
   },
 
   webServer: {
-    command: 'pnpm dev-web',
+    command: 'corepack pnpm dev-web',
     port: 3000,
-    reuseExistingServer: !process.env['CI'],
+    reuseExistingServer:
+      process.env.OPENREAD_E2E_REUSE_SERVER === 'false' ? false : !process.env['CI'],
     timeout: 120_000,
   },
 
@@ -76,7 +79,7 @@ export default defineConfig({
       name: 'msedge',
       use: { ...devices['Desktop Edge'], channel: 'msedge' },
     },
-    { name: 'mobile-chromium', use: { ...devices['Pixel 8'] } }, // Android
+    { name: 'mobile-chromium', use: { ...devices['Pixel 7'] } }, // Android web layer
     { name: 'mobile-webkit', use: { ...devices['iPhone 15 Pro'] } }, // iOS / iPadOS
     // Visual regression lane (separate project, run from its own command)
     {

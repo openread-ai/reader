@@ -12,7 +12,7 @@ import {
   getAPIBaseUrl,
   getNodeAPIBaseUrl,
 } from '@/services/environment';
-import { READEST_OPDS_USER_AGENT } from '@/services/constants';
+import { OPENREAD_OPDS_USER_AGENT } from '@/services/constants';
 import { createLogger } from '@/utils/logger';
 import { md5 } from 'js-md5';
 import { OPDS_TIMEOUTS } from '../types';
@@ -210,7 +210,7 @@ export async function opdsFetch(url: string, options: OPDSHttpOptions = {}): Pro
 
   // Build headers
   const reqHeaders: Record<string, string> = {
-    'User-Agent': READEST_OPDS_USER_AGENT,
+    'User-Agent': OPENREAD_OPDS_USER_AGENT,
     Accept: 'application/atom+xml, application/opds+json, application/xml, text/xml, */*',
     ...headers,
   };

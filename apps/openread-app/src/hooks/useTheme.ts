@@ -120,7 +120,6 @@ export const useTheme = ({
     customThemes.forEach((customTheme) => {
       applyCustomTheme(customTheme, undefined, useFallbackColors.current);
     });
-    localStorage.setItem('customThemes', JSON.stringify(customThemes));
   }, [settings.globalReadSettings?.customThemes]);
 
   useEffect(() => {

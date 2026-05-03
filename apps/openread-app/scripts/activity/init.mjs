@@ -7,7 +7,7 @@ import { ensureDir, parseArgs, readJsonIfExists, writeJson } from './common.mjs'
 
 const args = parseArgs(process.argv.slice(2));
 const startedAtMs = Date.now();
-const title = String(args.title ?? args.slug ?? 'Untitled Activity').trim();
+const title = String(args.title ?? args.intent ?? args.slug ?? 'Untitled Activity').trim();
 const slug = sanitizeSlug(args.slug ?? title);
 const artifactRoot = resolve(
   args.artifactRoot ??
@@ -70,17 +70,16 @@ console.log(
   JSON.stringify({ result: 'created', ...metadata, durationMs: Date.now() - startedAtMs }, null, 2),
 );
 
-function nextActivityId(activities, activitySlug) {
-  const year = new Date().getFullYear();
-  const prefix = `ACT-${year}-`;
+function nextActivityId(activities) {
   const sequence = activities
     .map((activity) => activity.activityId)
-    .filter((id) => id?.startsWith(prefix))
-    .map((id) => Number(id.slice(prefix.length, prefix.length + 4)))
+    .map((id) => String(id ?? '').match(/^ACT-(\d+)$/)?.[1])
+    .filter(Boolean)
+    .map((id) => Number(id))
     .filter(Number.isFinite)
     .reduce((max, value) => Math.max(max, value), 0);
 
-  return `${prefix}${String(sequence + 1).padStart(4, '0')}-${activitySlug}`;
+  return `ACT-${String(sequence + 1).padStart(3, '0')}`;
 }
 
 function sanitizeSlug(value) {

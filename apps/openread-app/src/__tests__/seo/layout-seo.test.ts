@@ -8,7 +8,7 @@ describe('Root Layout SEO Metadata', () => {
   describe('metadataBase', () => {
     it('should have metadataBase set to the production URL', () => {
       expect(typedMetadata.metadataBase).toBeDefined();
-      expect(typedMetadata.metadataBase!.toString()).toBe('https://web.openread.com/');
+      expect(typedMetadata.metadataBase!.toString()).toBe('https://app.openread.ai/');
     });
   });
 
@@ -56,7 +56,7 @@ describe('Root Layout SEO Metadata', () => {
 
     it('should have openGraph url', () => {
       const og = typedMetadata.openGraph as Record<string, unknown>;
-      expect(og.url).toBe('https://web.openread.com/');
+      expect(og.url).toBe('https://app.openread.ai/');
     });
 
     it('should have openGraph title', () => {
@@ -152,7 +152,7 @@ describe('JSON-LD Structured Data', () => {
         priceCurrency: 'USD',
       },
       description: (metadata as Metadata).description,
-      url: 'https://web.openread.com/',
+      url: 'https://app.openread.ai/',
     };
 
     expect(jsonLd['@context']).toBe('https://schema.org');
@@ -169,7 +169,7 @@ describe('JSON-LD Structured Data', () => {
     expect(jsonLd.offers.price).toBe('0');
     expect(jsonLd.offers.priceCurrency).toBe('USD');
     expect(jsonLd.description).toBeDefined();
-    expect(jsonLd.url).toBe('https://web.openread.com/');
+    expect(jsonLd.url).toBe('https://app.openread.ai/');
   });
 
   it('should produce valid JSON when stringified', () => {
@@ -185,7 +185,7 @@ describe('JSON-LD Structured Data', () => {
         priceCurrency: 'USD',
       },
       description: 'Test description',
-      url: 'https://web.openread.com/',
+      url: 'https://app.openread.ai/',
     };
 
     const stringified = JSON.stringify(jsonLd);

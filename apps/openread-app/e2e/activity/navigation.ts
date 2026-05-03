@@ -30,5 +30,8 @@ export async function navigateToReaderWithAnyBook(page: Page): Promise<void> {
   await library.expectBooksVisible();
   await library.clickFirstBook();
   await reader.waitForReaderUrl();
-  await expect(reader.inlineQuestionBar()).toBeVisible({ timeout: 45_000 });
+  await expect(page.getByTestId('reader-content-ready')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('reader-loading')).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.getByText(/Unable to open book/i)).toHaveCount(0);
+  await expect(reader.inlineQuestionBar()).toBeVisible({ timeout: 15_000 });
 }

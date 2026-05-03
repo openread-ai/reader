@@ -14,6 +14,7 @@ import {
   resolveAndroidSdkRoot,
   writeJson,
 } from './common.mjs';
+import { buildNativeFixtureManifest, writeNativeFixtureManifest } from './native-fixtures.mjs';
 
 const config = getActivityConfig(process.argv.slice(2));
 const args = parseArgs(process.argv.slice(2));
@@ -33,9 +34,13 @@ const openUrl =
   args.openUrl ?? process.env.OPENREAD_ANDROID_OPEN_URL ?? buildActivityCaptureUrl(capturePlan);
 const delayMs = Number(args.delayMs ?? process.env.OPENREAD_ANDROID_SMOKE_DELAY_MS ?? 2_000);
 const serial = args.androidSerial ?? process.env.ANDROID_SERIAL ?? null;
-const build = args.build !== false && args.build !== 'false';
-const install = args.install !== false && args.install !== 'false';
-const launch = args.launch !== false && args.launch !== 'false';
+const warmOnly =
+  args.warmOnly === true ||
+  args.warmOnly === 'true' ||
+  process.env.OPENREAD_ANDROID_WARM_ONLY === 'true';
+const build = !warmOnly && args.build !== false && args.build !== 'false';
+const install = !warmOnly && args.install !== false && args.install !== 'false';
+const launch = !warmOnly && args.launch !== false && args.launch !== 'false';
 const screenshotPath = resolve(artifactDir, 'android-smoke.png');
 const sdkRoot = resolveAndroidSdkRoot();
 const ndkHome = resolveAndroidNdkHome(sdkRoot);
@@ -47,8 +52,25 @@ const env = {
 const lockWaitMs = Number(args.lockWaitMs ?? process.env.OPENREAD_ACTIVITY_LOCK_WAIT_MS ?? 0);
 
 ensureDir(artifactDir);
+const nativeFixtureManifestPath = resolve(artifactDir, 'native-fixture-manifest.json');
+const nativeFixtureManifest = writeNativeFixtureManifest(
+  nativeFixtureManifestPath,
+  buildNativeFixtureManifest({
+    config,
+    capturePlan,
+    nativeTargets: ['android-device'],
+    openUrl,
+    mode: warmOnly ? 'warm' : 'smoke',
+  }),
+);
 
-const steps = [];
+const steps = [
+  check(
+    'Native Android fixtures are expandable',
+    nativeFixtureManifest.result !== 'blocked',
+    nativeFixtureManifest.result,
+  ),
+];
 let platformLock = null;
 
 try {
@@ -63,12 +85,21 @@ try {
 }
 
 steps.push(check('Android SDK root exists', Boolean(sdkRoot), sdkRoot));
-steps.push(check('Android NDK exists', Boolean(ndkHome), ndkHome));
+if (!warmOnly) steps.push(check('Android NDK exists', Boolean(ndkHome), ndkHome));
 steps.push(commandStep('adb version', androidTool('adb'), ['version']));
+steps.push(
+  commandStep('Android emulator AVDs are listable', androidTool('emulator'), ['-list-avds']),
+);
 
 if (steps.every((step) => step.ok)) {
   const deviceStep = ensureAndroidDevice();
   steps.push(deviceStep);
+
+  if (deviceStep.ok && warmOnly) {
+    steps.push(
+      check('Android emulator/device is warmed for native testing', true, serial ?? avdName),
+    );
+  }
 
   if (deviceStep.ok && build) {
     steps.push(
@@ -93,27 +124,30 @@ if (steps.every((step) => step.ok)) {
     );
   }
 
-  const apkPath = findNewestApk(resolve(appRoot, 'src-tauri/gen/android'));
-  steps.push(check('Android APK artifact exists', Boolean(apkPath), apkPath));
+  if (!warmOnly) {
+    const apkPath = findNewestApk(resolve(appRoot, 'src-tauri/gen/android'));
+    if (build || install)
+      steps.push(check('Android APK artifact exists', Boolean(apkPath), apkPath));
 
-  if (deviceStep.ok && install && apkPath) {
-    steps.push(
-      commandStep(
-        'APK installs on Android device',
-        androidTool('adb'),
-        adbArgs(['install', '-r', apkPath]),
-        { timeoutMs: 180_000 },
-      ),
-    );
-  }
+    if (deviceStep.ok && install && apkPath) {
+      steps.push(
+        commandStep(
+          'APK installs on Android device',
+          androidTool('adb'),
+          adbArgs(['install', '-r', apkPath]),
+          { timeoutMs: 180_000 },
+        ),
+      );
+    }
 
-  if (deviceStep.ok && launch) {
-    steps.push(launchAndroidApp());
-  }
+    if (deviceStep.ok && launch) {
+      steps.push(launchAndroidApp());
+    }
 
-  if (deviceStep.ok) {
-    if (launch) sleep(delayMs);
-    steps.push(captureAndroidScreenshot(screenshotPath));
+    if (deviceStep.ok) {
+      if (launch) sleep(delayMs);
+      steps.push(captureAndroidScreenshot(screenshotPath));
+    }
   }
 }
 
@@ -130,6 +164,9 @@ const report = {
   androidPackage,
   openUrl,
   delayMs,
+  warmOnly,
+  nativeFixtureManifestPath,
+  nativeFixtures: nativeFixtureManifest,
   sdkRoot,
   ndkHome,
   artifactDir,
@@ -137,7 +174,9 @@ const report = {
   steps,
   nextAction:
     result === 'passed'
-      ? 'Run Stage 4 native Android capture against the installed app.'
+      ? warmOnly
+        ? 'Android emulator/device is booted and ready for native Android work.'
+        : 'Run Stage 4 native Android capture against the installed app.'
       : 'Fix failed Android platform smoke checks and retry with a new attempt.',
   startedAt,
   finishedAt: new Date().toISOString(),
@@ -306,6 +345,7 @@ Options:
   --open-url <url>             Deep link to open before screenshot
   --delay-ms <ms>              Wait after launch before screenshot
   --lock-wait-ms <ms>          Wait for another native Android lane to finish
+  --warm-only                  Boot/connect Android under the platform lock; skip build/install/launch/capture
   --build false                Skip debug APK build
   --install false              Skip APK install
   --launch false               Skip launch/deep-link

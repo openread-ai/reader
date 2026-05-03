@@ -10,7 +10,7 @@ describe('sitemap.ts', () => {
 
   it('should include the homepage with priority 1', () => {
     const result = sitemap();
-    const homepage = result.find((entry) => entry.url === 'https://web.openread.com');
+    const homepage = result.find((entry) => entry.url === 'https://app.openread.ai');
 
     expect(homepage).toBeDefined();
     expect(homepage!.priority).toBe(1);
@@ -19,7 +19,7 @@ describe('sitemap.ts', () => {
 
   it('should include the auth page', () => {
     const result = sitemap();
-    const authPage = result.find((entry) => entry.url === 'https://web.openread.com/auth');
+    const authPage = result.find((entry) => entry.url === 'https://app.openread.ai/auth');
 
     expect(authPage).toBeDefined();
     expect(authPage!.priority).toBe(0.5);
@@ -28,7 +28,7 @@ describe('sitemap.ts', () => {
 
   it('should include the privacy page', () => {
     const result = sitemap();
-    const privacyPage = result.find((entry) => entry.url === 'https://web.openread.com/privacy');
+    const privacyPage = result.find((entry) => entry.url === 'https://app.openread.ai/privacy');
 
     expect(privacyPage).toBeDefined();
     expect(privacyPage!.priority).toBe(0.3);
@@ -37,7 +37,7 @@ describe('sitemap.ts', () => {
 
   it('should include the terms page', () => {
     const result = sitemap();
-    const termsPage = result.find((entry) => entry.url === 'https://web.openread.com/terms');
+    const termsPage = result.find((entry) => entry.url === 'https://app.openread.ai/terms');
 
     expect(termsPage).toBeDefined();
     expect(termsPage!.priority).toBe(0.3);

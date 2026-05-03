@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import dayjs from 'dayjs';
 import React, { useRef, useState } from 'react';
 
+import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { useEnv } from '@/context/EnvContext';
 import { BookNote } from '@/types/book';
@@ -164,7 +165,9 @@ const BooknoteItem: React.FC<BooknoteItemProps> = ({ bookKey, item, onClick }) =
           <div
             className='content prose prose-sm font-size-sm'
             dir='auto'
-            dangerouslySetInnerHTML={{ __html: marked.parse(item.note) }}
+            dangerouslySetInnerHTML={{
+              __html: DOMPurify.sanitize(marked.parse(item.note) as string),
+            }}
           ></div>
         )}
         <div className='flex items-start'>

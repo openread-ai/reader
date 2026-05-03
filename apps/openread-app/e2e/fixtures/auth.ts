@@ -15,19 +15,13 @@ import { TEST_USER, SUPABASE_CONFIG, getSupabaseProjectRef } from './test-users'
  *      step 1 get wiped before first render.
  */
 
-const SESSION_REUSE_BUFFER_MS = 5 * 60 * 1000;
 const SUPABASE_STORAGE_KEY = `sb-${getSupabaseProjectRef()}-auth-token`;
 
-let cachedSession: Session | null = null;
-
+// Sign in for each Playwright context. The app calls Supabase refreshSession()
+// on mount, which can rotate the refresh token stored under the sb-* key. If a
+// later test reused the original cached refresh token, AuthContext could treat
+// it as invalid and redirect that fresh context back to /auth.
 export async function getTestSession(): Promise<Session> {
-  if (cachedSession?.expires_at) {
-    const msUntilExpiry = cachedSession.expires_at * 1000 - Date.now();
-    if (msUntilExpiry > SESSION_REUSE_BUFFER_MS) {
-      return cachedSession;
-    }
-  }
-
   const supabase = createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey, {
     auth: {
       persistSession: false,
@@ -50,22 +44,46 @@ export async function getTestSession(): Promise<Session> {
     throw new Error(`signInWithPassword returned no session for ${TEST_USER.email}`);
   }
 
-  cachedSession = data.session;
-  return cachedSession;
+  return data.session;
 }
 
-async function injectSession(page: Page, session: Session): Promise<void> {
+export async function injectSession(page: Page, session: Session): Promise<void> {
   await page.addInitScript(
     ({ session, supabaseStorageKey }) => {
-      localStorage.setItem('token', session.access_token);
-      localStorage.setItem('refresh_token', session.refresh_token);
-      localStorage.setItem('user', JSON.stringify(session.user));
-      localStorage.setItem(supabaseStorageKey, JSON.stringify(session));
+      const hasCompleteCustomSession = Boolean(
+        localStorage.getItem('token') &&
+        localStorage.getItem('refresh_token') &&
+        localStorage.getItem('user'),
+      );
+      const hasSupabaseSession = Boolean(localStorage.getItem(supabaseStorageKey));
+
+      // Only seed the initial session when auth storage is absent/incomplete.
+      // This init script runs on every navigation/reload, and overwriting an
+      // already-refreshed Supabase session can send hard reloads back through /auth.
+      if (!hasCompleteCustomSession || !hasSupabaseSession) {
+        localStorage.setItem('token', session.access_token);
+        localStorage.setItem('refresh_token', session.refresh_token);
+        localStorage.setItem('user', JSON.stringify(session.user));
+        localStorage.setItem(supabaseStorageKey, JSON.stringify(session));
+      }
+
       // Skip welcome + onboarding dialogs — they block clicks in tests.
       localStorage.setItem('has_seen_welcome', 'true');
       localStorage.setItem('openread_onboarding_completed', new Date().toISOString());
     },
     { session, supabaseStorageKey: SUPABASE_STORAGE_KEY },
+  );
+}
+
+export async function clearSession(page: Page): Promise<void> {
+  await page.evaluate(
+    ({ supabaseStorageKey }) => {
+      localStorage.removeItem('token');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('user');
+      localStorage.removeItem(supabaseStorageKey);
+    },
+    { supabaseStorageKey: SUPABASE_STORAGE_KEY },
   );
 }
 

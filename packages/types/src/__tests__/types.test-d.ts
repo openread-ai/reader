@@ -158,7 +158,7 @@ describe('MCP types', () => {
       id: string;
       title: string;
       author: string | null;
-      format: string;
+      format: BookFormat;
       chapterCount: number;
     }>();
   });
@@ -196,7 +196,7 @@ describe('MCP types', () => {
       type: 'highlight' | 'note' | 'bookmark';
       content: string;
       cfi: string;
-      createdAt: string;
+      createdAt: number;
     }>();
   });
 });

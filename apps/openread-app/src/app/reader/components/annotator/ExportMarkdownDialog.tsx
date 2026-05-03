@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import React, { useState, useMemo, useEffect } from 'react';
+import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -190,7 +191,7 @@ const ExportMarkdownDialog: React.FC<ExportMarkdownDialogProps> = ({
   // Convert markdown to HTML for preview
   const htmlPreview = useMemo(() => {
     if (!markdownPreview) return '';
-    return marked.parse(markdownPreview);
+    return DOMPurify.sanitize(marked.parse(markdownPreview) as string);
   }, [markdownPreview]);
 
   const handleToggle = (field: keyof NoteExportConfig) => {
